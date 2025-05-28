@@ -1,7 +1,7 @@
 // src/lib/api.ts
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://ai-debator.roamify.tech/api';
 
 export interface Voice {
   voice_id: string;
