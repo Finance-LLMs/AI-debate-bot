@@ -39,7 +39,7 @@ const upload = multer({ storage });
 
 // Helper function to get a Python interpreter path
 function getPythonPath() {
-  return 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
+  return '/usr/bin/python3';
 }
 
 // Create a promise with a timeout
