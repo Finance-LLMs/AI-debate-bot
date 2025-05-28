@@ -180,7 +180,7 @@ app.post('/api/debate-response', async (req, res) => {
     // Run the Python script with proper timeout
     const options = {
       mode: 'text',
-      pythonPath: 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+      pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       scriptPath: path.join(__dirname, '..', 'app'),
       args: args
@@ -194,7 +194,7 @@ app.post('/api/debate-response', async (req, res) => {
       // Clean the output using the same function used for TTS
     const cleanOptions = {
       mode: 'text',
-      pythonPath: 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+      pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       scriptPath: path.join(__dirname, '..', 'app'),
       args: [fullOutput]
