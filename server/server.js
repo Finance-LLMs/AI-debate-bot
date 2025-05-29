@@ -251,7 +251,7 @@ app.post('/api/tts', async (req, res) => {
       console.log(`[DEBUG] Starting Python TTS script for ${text.length} characters of text`);
       
       promiseWithTimeout(
-        PythonShell.run('tts_enhanced.py', options),
+        // PythonShell.run('tts_enhanced.py', options),
         40000, // 40s timeout for the entire Python process
         'Python TTS process timed out'
       )
