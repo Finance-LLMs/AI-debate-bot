@@ -25,9 +25,6 @@ Follow these steps:
 First, make sure you have installed Node js to use npm, and all the libraries given in requirements.txt
 
 ```sh
-# Step 0: If you want to use Ollama on your local machine:
-ollama run <model_name> # Eg: ollama run deepseekr1
-
 # Step 1: Clone the repository using the project's Git URL.
 git clone https://github.com/akshatparmar2634/AI-debate-bot.git
 

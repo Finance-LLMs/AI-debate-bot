@@ -287,7 +287,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-// Get debate response using Ollama
+// Get debate response using ElevenLabs
 app.post('/api/debate-response', async (req, res) => {
   try {
     const { userInput, history, debateSide, debateRound } = req.body;
@@ -302,7 +302,7 @@ app.post('/api/debate-response', async (req, res) => {
       debateRound.toString()
     ];
     
-    console.log(`[DEBUG] Starting Python debate script with model qwen2:1.5b`);
+    console.log(`[DEBUG] Starting Python debate script with ElevenLabs API`);
     
     // Run the Python script with proper timeout
     const options = {
