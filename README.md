@@ -34,11 +34,11 @@ cd AI-debate-bot
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 3: Install the express package inside `server/` directory.
+# Step 4: Install the express package inside `server/` directory.
 cd server/
 npm install express
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 5: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
