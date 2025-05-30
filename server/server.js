@@ -16,6 +16,10 @@ const PORT = process.env.PORT || 5000;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434/api';
 
+// Credit tracking for rate limiting
+let sessionCreditsUsed = 0;
+const MAX_SESSION_CREDITS = 3000;
+
 // Configure middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));  // Increase JSON payload limit
@@ -55,6 +59,92 @@ function promiseWithTimeout(promise, timeoutMs, errorMsg) {
     promise,
     timeoutPromise
   ]).finally(() => clearTimeout(timeoutId));
+}
+
+// Calculate credits needed for text (ElevenLabs pricing: approximately 1 credit per character)
+function calculateCreditsNeeded(text) {
+  // ElevenLabs charges roughly 1 credit per character
+  return text.length;
+}
+
+// Check if request would exceed credit limit
+function checkCreditLimit(text) {
+  const creditsNeeded = calculateCreditsNeeded(text);
+  const totalCreditsAfterRequest = sessionCreditsUsed + creditsNeeded;
+  
+  return {
+    creditsNeeded,
+    totalCreditsAfterRequest,
+    withinLimit: totalCreditsAfterRequest <= MAX_SESSION_CREDITS,
+    remainingCredits: MAX_SESSION_CREDITS - sessionCreditsUsed
+  };
+}
+
+// Add credits to the session total
+function addCreditsUsed(creditsUsed) {
+  sessionCreditsUsed += creditsUsed;
+  console.log(`[CREDITS] Used ${creditsUsed} credits. Session total: ${sessionCreditsUsed}/${MAX_SESSION_CREDITS}`);
+}
+
+// Reset credit counter (optional endpoint for admin use)
+function resetCredits() {
+  sessionCreditsUsed = 0;
+  console.log(`[CREDITS] Session credits reset to 0`);
+}
+
+// Helper function to clean up old audio files (older than 24 hours)
+// REMOVED: No longer needed since files are deleted immediately after use
+
+// Helper function to clean up any leftover files on startup
+function cleanupLeftoverFiles() {
+  try {
+    // Clean uploads directory
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (fs.existsSync(uploadDir)) {
+      const uploadFiles = fs.readdirSync(uploadDir);
+      uploadFiles.forEach(file => {
+        const filePath = path.join(uploadDir, file);
+        fs.unlinkSync(filePath);
+      });
+      if (uploadFiles.length > 0) {
+        console.log(`[DEBUG] Cleaned up ${uploadFiles.length} leftover upload files`);
+      }
+    }
+    
+    // Clean audio directory
+    const audioDir = path.join(__dirname, 'audio');
+    if (fs.existsSync(audioDir)) {
+      const audioFiles = fs.readdirSync(audioDir);
+      audioFiles.forEach(file => {
+        const filePath = path.join(audioDir, file);
+        fs.unlinkSync(filePath);
+      });
+      if (audioFiles.length > 0) {
+        console.log(`[DEBUG] Cleaned up ${audioFiles.length} leftover audio files`);
+      }
+    }
+    
+    // Clean any temporary files that might be created by Python scripts
+    const tempPattern = /^(temp_|tts_|recording_|output_)/;
+    const currentDir = __dirname;
+    if (fs.existsSync(currentDir)) {
+      const allFiles = fs.readdirSync(currentDir);
+      const tempFiles = allFiles.filter(file => tempPattern.test(file) && (file.endsWith('.mp3') || file.endsWith('.wav') || file.endsWith('.tmp')));
+      tempFiles.forEach(file => {
+        const filePath = path.join(currentDir, file);
+        try {
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          console.error(`[ERROR] Failed to delete temp file ${file}:`, err.message);
+        }
+      });
+      if (tempFiles.length > 0) {
+        console.log(`[DEBUG] Cleaned up ${tempFiles.length} temporary files`);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up leftover files:', error);
+  }
 }
 
 // API Endpoints
@@ -129,6 +219,15 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     .then(results => {
       const transcription = results[0] || 'Transcription failed';
       console.log(`[DEBUG] Transcription result: ${transcription.slice(0, 50)}...`);
+      
+      // Delete the uploaded audio file immediately after processing
+      try {
+        fs.unlinkSync(audioFilePath);
+        console.log(`[DEBUG] Deleted uploaded audio file: ${audioFilePath}`);
+      } catch (deleteError) {
+        console.error(`[ERROR] Failed to delete uploaded file: ${deleteError.message}`);
+      }
+      
       res.json({ text: transcription });
     })
     .catch(err => {
@@ -147,20 +246,48 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         timeout: 30000 // 30s timeout
       })
       .then(response => {
+        // Delete the uploaded audio file after fallback processing
+        try {
+          fs.unlinkSync(audioFilePath);
+          console.log(`[DEBUG] Deleted uploaded audio file after fallback: ${audioFilePath}`);
+        } catch (deleteError) {
+          console.error(`[ERROR] Failed to delete uploaded file after fallback: ${deleteError.message}`);
+        }
+        
         res.json({ text: response.data.text });
       })
       .catch(fallbackErr => {
         console.error('Fallback transcription error:', fallbackErr);
+        
+        // Delete the uploaded audio file even if transcription fails
+        try {
+          fs.unlinkSync(audioFilePath);
+          console.log(`[DEBUG] Deleted uploaded audio file after failure: ${audioFilePath}`);
+        } catch (deleteError) {
+          console.error(`[ERROR] Failed to delete uploaded file after failure: ${deleteError.message}`);
+        }
+        
         res.status(500).json({ error: 'Failed to transcribe audio' });
       });
     });
   } catch (error) {
     console.error('Error in transcription route:', error);
+    
+    // Clean up uploaded file if there's an error
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log(`[DEBUG] Deleted uploaded audio file after error: ${req.file.path}`);
+      } catch (deleteError) {
+        console.error(`[ERROR] Failed to delete uploaded file after error: ${deleteError.message}`);
+      }
+    }
+    
     res.status(500).json({ error: 'Failed to transcribe audio' });
   }
 });
 
-// Get debate response using Ollama
+// Get debate response using ElevenLabs
 app.post('/api/debate-response', async (req, res) => {
   try {
     const { userInput, history, debateSide, debateRound } = req.body;
@@ -175,7 +302,7 @@ app.post('/api/debate-response', async (req, res) => {
       debateRound.toString()
     ];
     
-    // console.log(`[DEBUG] Starting Python debate script with model qwen2:1.5b`);
+    console.log(`[DEBUG] Starting Python debate script with ElevenLabs API`);
     
     // Run the Python script with proper timeout
     const options = {
@@ -237,68 +364,123 @@ app.post('/api/tts', async (req, res) => {
     if (!text || !voiceId) {
       return res.status(400).json({ error: 'Text and voiceId are required' });
     }
-      // Use Python script to clean the text first
+    
+    // Check credit limit before processing
+    const creditCheck = checkCreditLimit(text);
+    console.log(`[CREDITS] Request needs ${creditCheck.creditsNeeded} credits. Current usage: ${sessionCreditsUsed}/${MAX_SESSION_CREDITS}`);
+    
+    if (!creditCheck.withinLimit) {
+      console.log(`[CREDITS] Request denied - would exceed limit. Total would be: ${creditCheck.totalCreditsAfterRequest}`);
+      return res.status(429).json({ 
+        error: 'You have exceeded the maximum allowed conversation limit',
+        details: {
+          creditsNeeded: creditCheck.creditsNeeded,
+          creditsUsed: sessionCreditsUsed,
+          maxCredits: MAX_SESSION_CREDITS,
+          remainingCredits: creditCheck.remainingCredits
+        }
+      });
+    }
+    
+    // Use Python script to clean the text first
     console.log(`[DEBUG] Using clean_tts.py to filter and process text`);
 
-      const options = {
-        scriptPath: path.join(__dirname, '../app'),
-        pythonPath: getPythonPath(),
-        pythonOptions: ['-u'],
-        args: [text, voiceId, '30']  // 30s timeout within the Python script
-      };
+    const options = {
+      scriptPath: path.join(__dirname, '../app'),
+      pythonPath: getPythonPath(),
+      pythonOptions: ['-u'],
+      args: [text, voiceId, '30']  // 30s timeout within the Python script
+    };
+    
+    // Create a temporary file path for the audio
+    console.log(`[DEBUG] Starting Python TTS script for ${text.length} characters of text`);
+    
+    promiseWithTimeout(
+      PythonShell.run('tts_enhanced.py', options),
+      40000, // 40s timeout for the entire Python process
+      'Python TTS process timed out'
+    )
+    .then((results) => {
+      console.log(`[DEBUG] TTS Python script output:`, results);
       
-      // Create a temporary file path for the audio
-      console.log(`[DEBUG] Starting Python TTS script for ${text.length} characters of text`);
-      
-      promiseWithTimeout(
-        // PythonShell.run('tts_enhanced.py', options),
-        40000, // 40s timeout for the entire Python process
-        'Python TTS process timed out'
-      )
-      .then((results) => {
-        console.log(`[DEBUG] TTS Python script output:`, results);
+      // Get the file path from the Python script output
+      const outputPath = results && results.length > 0 ? results[results.length - 1].trim() : null;
+      if (outputPath && fs.existsSync(outputPath)) {
+        console.log(`[DEBUG] Audio file exists at ${outputPath}`);
         
-        // Get the file path from the Python script output
-        const outputPath = results && results.length > 0 ? results[results.length - 1].trim() : null;
+        // Read the audio file and send as base64
+        const audioBuffer = fs.readFileSync(outputPath);
+        const base64Audio = audioBuffer.toString('base64');
+        console.log(`[DEBUG] Audio converted to base64 (${base64Audio.length} characters)`);
         
-        if (outputPath && fs.existsSync(outputPath)) {
-          console.log(`[DEBUG] Audio file exists at ${outputPath}`);
-          // Read the audio file and send as base64
-          const audioBuffer = fs.readFileSync(outputPath);
-          const base64Audio = audioBuffer.toString('base64');
-          console.log(`[DEBUG] Audio converted to base64 (${base64Audio.length} characters)`);
-          
-          // Clean up the file
+        // Add credits to session total only after successful TTS generation
+        addCreditsUsed(creditCheck.creditsNeeded);
+        
+        // Clean up the temporary file immediately after reading it
+        try {
           fs.unlinkSync(outputPath);
-          
-          res.json({
-            audioContent: base64Audio,
-            format: 'audio/mp3',
-            source: 'python-script'
-          });
-        } else {
-          console.error(`[ERROR] Audio file not found at path: ${outputPath || 'not returned'}`);
-          throw new Error('Audio file not generated or path not returned');
+          console.log(`[DEBUG] Deleted temporary audio file: ${outputPath}`);
+        } catch (deleteError) {
+          console.error(`[ERROR] Failed to delete temporary audio file: ${deleteError.message}`);
         }
-      })
-      .catch(err => {
-        console.error('Python TTS error:', err);
-        console.error('Error details:', err.traceback || 'No traceback');
         
-        // If both direct API and Python method fail, return an error
-        res.status(500).json({ 
-          error: 'Failed to generate speech after multiple attempts',
-          details: 'Both direct API and Python methods failed'
+        res.json({
+          audioContent: base64Audio,
+          format: 'audio/mp3',
+          source: 'python-script',
+          creditsUsed: creditCheck.creditsNeeded,
+          totalCreditsUsed: sessionCreditsUsed,
+          remainingCredits: MAX_SESSION_CREDITS - sessionCreditsUsed
         });
+      } else {
+        console.error(`[ERROR] Audio file not found at path: ${outputPath || 'not returned'}`);
+        throw new Error('Audio file not generated or path not returned');
+      }
+    })
+    .catch(err => {
+      console.error('Python TTS error:', err);
+      console.error('Error details:', err.traceback || 'No traceback');
+      
+      // If both direct API and Python method fail, return an error
+      res.status(500).json({ 
+        error: 'Failed to generate speech after multiple attempts',
+        details: 'Both direct API and Python methods failed'
       });
-    } 
-  catch (error) {
+    });
+  }  catch (error) {
     console.error('Error in TTS route:', error);
     res.status(500).json({ error: 'Failed to generate speech' });
   }
 });
 
+// Get current credit usage
+app.get('/api/credits/status', (req, res) => {
+  res.json({
+    creditsUsed: sessionCreditsUsed,
+    maxCredits: MAX_SESSION_CREDITS,
+    remainingCredits: MAX_SESSION_CREDITS - sessionCreditsUsed,
+    percentageUsed: Math.round((sessionCreditsUsed / MAX_SESSION_CREDITS) * 100)
+  });
+});
+
+// Reset credit counter (for development/admin use)
+app.post('/api/credits/reset', (req, res) => {
+  const previousCredits = sessionCreditsUsed;
+  resetCredits();
+  res.json({
+    message: 'Credits reset successfully',
+    previousCreditsUsed: previousCredits,
+    currentCreditsUsed: sessionCreditsUsed
+  });
+});
+
 // Start the server
 app.listen(PORT, () => {
   console.log(`Enhanced server running on port ${PORT}`);
+  console.log(`[INFO] Files will be deleted immediately after processing`);
+  console.log(`[CREDITS] Session credit limit: ${MAX_SESSION_CREDITS} credits`);
+  console.log(`[CREDITS] Current usage: ${sessionCreditsUsed}/${MAX_SESSION_CREDITS} credits`);
+  
+  // Clean up any leftover files from previous sessions
+  cleanupLeftoverFiles();
 });

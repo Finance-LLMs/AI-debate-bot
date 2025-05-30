@@ -32,22 +32,11 @@ if __name__ == "__main__":
         
         print("Generating debate response...")
         topic = "AI in healthcare, allowing AI to override human decisions in healthcare."
-        response_length = max(500,len(user_input.split()))
-    
-        system_prompt = (
-        f"You are an expert human debater arguing {debate_side.upper()} the proposition: '{topic}'\n"
-        f"Give a speech, arguing {debate_side.upper()} "
-        f"the following proposition: '{topic}'. "
-        f"You have to give me a single response to my argument, getting straight to the point and do not give me any type of informal talk. "
-        f"I am your opponent and I just made a very important argument: {user_input}\n\n"
-        f"Respond to my argument. "
-        f"Try to keep your response in approximately {response_length} words by elaborating on the topics. It's fine if you deviate from the topic "
-        f"Sound like a confident professional in a debate.\n\n"
-        f"It is very very important that you keep your response to {response_length} words. If not then it's still okay. Just elaborate on all the points\n\n"
-        f"Your response: \n"
-        )
+        
+        prompt = f"You are an AI assistant participating in a debate about {topic}. You are on the {debate_side} side of the motion. Respond to the user's statements: {user_input} with well-reasoned arguments that support your position."
+
         response = get_agent_response(
-            system_prompt
+            prompt
         )
         
         # Only output the final response without debug logs
