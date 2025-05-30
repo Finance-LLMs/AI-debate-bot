@@ -1,7 +1,21 @@
 // src/lib/api.ts
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+// Default to production URL
+let API_URL = 'https://ai-debator.roamify.tech/api';
+
+// Try to access the production API, fallback to localhost if it fails
+(async () => {
+  try {
+    // Add a timeout to avoid long waiting time
+    await axios.get(`${API_URL}/voices`, { timeout: 2000 });
+    console.log('Using production API URL:', API_URL);
+  } catch (error) {
+    console.warn('Could not connect to production API, falling back to localhost');
+    API_URL = 'http://localhost:5000/api';
+    console.log('Using local API URL:', API_URL);
+  }
+})();
 
 export interface Voice {
   voice_id: string;
