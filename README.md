@@ -34,9 +34,11 @@ cd AI-debate-bot
 # Step 3: Install the necessary dependencies.
 npm i
 
-# Step 4: Make sure u run 'ollama run qwen2:1.5b' in the backaground
+# Step 3: Install the express package inside `server/` directory.
+cd server/
+npm install express
 
-# Step 5: Start the development server with auto-reloading and an instant preview.
+# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
