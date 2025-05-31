@@ -41,10 +41,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Helper function to get a Python interpreter path
-function getPythonPath() {
-  return 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
-}
+// // Helper function to get a Python interpreter path
+// function getPythonPath() {
+//   return 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
+// }
 
 // Create a promise with a timeout
 function promiseWithTimeout(promise, timeoutMs, errorMsg) {
@@ -156,7 +156,7 @@ app.get('/api/voices', async (req, res) => {
     // Use the Python function to get voices
     const options = {
       scriptPath: path.join(__dirname, '../app'),
-      pythonPath: getPythonPath(),
+      // pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       args: []
     };
@@ -206,7 +206,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     // Use Python function for transcription
     const options = {
       scriptPath: path.join(__dirname, '../app'),
-      pythonPath: getPythonPath(),
+      // pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       args: [audioFilePath, 'en']
     };
@@ -307,7 +307,7 @@ app.post('/api/debate-response', async (req, res) => {
     // Run the Python script with proper timeout
     const options = {
       mode: 'text',
-      pythonPath: 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+      // pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       scriptPath: path.join(__dirname, '..', 'app'),
       args: args
@@ -321,7 +321,7 @@ app.post('/api/debate-response', async (req, res) => {
       // Clean the output using the same function used for TTS
     const cleanOptions = {
       mode: 'text',
-      pythonPath: 'C:\\Users\\Akshat\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+      // pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       scriptPath: path.join(__dirname, '..', 'app'),
       args: [fullOutput]
@@ -387,7 +387,7 @@ app.post('/api/tts', async (req, res) => {
 
     const options = {
       scriptPath: path.join(__dirname, '../app'),
-      pythonPath: getPythonPath(),
+      // pythonPath: getPythonPath(),
       pythonOptions: ['-u'],
       args: [text, voiceId, '30']  // 30s timeout within the Python script
     };
