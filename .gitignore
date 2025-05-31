@@ -25,3 +25,5 @@ dist-ssr
 server\uploads\
 app/instance/config.py
 .env
+app/__pycache__/
+app/instance/__pycache__/
