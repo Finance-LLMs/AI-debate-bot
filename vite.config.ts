@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-    allowedHosts: ["ai-debator.roamify.tech", "sit-chatbot.roamify.tech"], // Domain Name
+    allowedHosts: ["ai-debator.roamify.tech"], // Domain Name
   },
   plugins: [
     react(),
