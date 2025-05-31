@@ -29,7 +29,7 @@ First, make sure you have installed Node js to use npm, and all the libraries gi
 ollama run <model_name> # Eg: ollama run deepseekr1
 
 # Step 1: Clone the repository using the project's Git URL.
-git clone https://github.com/akshatparmar2634/AI-debate-bot.git
+git clone https://github.com/Finance-LLMs/AI-debate-bot.git
 
 # Step 2: Navigate to the project directory.
 cd AI-debate-bot
