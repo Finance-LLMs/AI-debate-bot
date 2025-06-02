@@ -7,7 +7,7 @@ import os
 
 # Add the directory containing this script to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from app.tts_helper import list_voices
+from tts_helper import list_voices
 
 if __name__ == "__main__":
     try:
