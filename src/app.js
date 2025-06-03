@@ -95,11 +95,50 @@ function createAvatarSVG() {
     `;
 }
 
+// Create celebrity avatar with image
+function createCelebrityAvatar(opponent) {
+    const imageMap = {
+        'michelle': 'michelle.jpg',
+        'nelson': 'nelson.jpg', 
+        'taylor': 'taylor.jpg'
+    };
+    
+    const imageSrc = imageMap[opponent];
+    if (!imageSrc) return createAvatarSVG(); // fallback to doctor avatar
+    
+    return `
+        <div class="celebrity-avatar-container">
+            <img 
+                src="/static/images/${imageSrc}" 
+                alt="${opponent} avatar" 
+                class="celebrity-image"
+                onerror="this.style.display='none'; this.nextSibling.style.display='block';"
+            />
+            <div class="fallback-avatar" style="display: none;">
+                ${createAvatarSVG()}
+            </div>
+            <div class="speaking-indicator" id="speakingIndicator">
+                <div class="speaking-wave"></div>
+                <div class="speaking-wave"></div>
+                <div class="speaking-wave"></div>
+            </div>
+        </div>
+    `;
+}
+
 // Initialize avatar
 function initializeAvatar() {
     const avatarWrapper = document.getElementById('animatedAvatar');
+    const opponentSelect = document.getElementById('opponent');
+    
     if (avatarWrapper) {
-        avatarWrapper.innerHTML = createAvatarSVG();
+        const selectedOpponent = opponentSelect ? opponentSelect.value : '';
+        
+        if (selectedOpponent) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(selectedOpponent);
+        } else {
+            avatarWrapper.innerHTML = createAvatarSVG();
+        }
     }
 }
 
@@ -110,6 +149,12 @@ function startMouthAnimation() {
     const avatarWrapper = document.getElementById('animatedAvatar');
     if (avatarWrapper) {
         avatarWrapper.classList.add('avatar-speaking');
+        
+        // If it's a celebrity avatar, show the speaking indicator
+        const speakingIndicator = document.getElementById('speakingIndicator');
+        if (speakingIndicator) {
+            speakingIndicator.style.display = 'flex';
+        }
     }
     
     mouthAnimationInterval = setInterval(() => {
@@ -141,6 +186,12 @@ function stopMouthAnimation() {
     const avatarWrapper = document.getElementById('animatedAvatar');
     if (avatarWrapper) {
         avatarWrapper.classList.remove('avatar-speaking');
+        
+        // Hide speaking indicator for celebrity avatars
+        const speakingIndicator = document.getElementById('speakingIndicator');
+        if (speakingIndicator) {
+            speakingIndicator.style.display = 'none';
+        }
     }
     
     // Reset mouth to closed state
@@ -163,9 +214,10 @@ async function requestMicrophonePermission() {
     }
 }
 
-async function getSignedUrl() {
+async function getSignedUrl(opponent) {
     try {
-        const response = await fetch('/api/signed-url');
+        const url = opponent ? `/api/signed-url?opponent=${opponent}` : '/api/signed-url';
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to get signed URL');
         const data = await response.json();
         return data.signedUrl;
@@ -204,21 +256,36 @@ function updateSpeakingStatus(mode) {
     console.log('Speaking status updated:', { mode, isSpeaking }); // Debug log
 }
 
+// Function to disable/enable form controls
+function setFormControlsState(disabled) {
+    const topicSelect = document.getElementById('topic');
+    const stanceSelect = document.getElementById('stance');
+    const opponentSelect = document.getElementById('opponent');
+    
+    topicSelect.disabled = disabled;
+    stanceSelect.disabled = disabled;
+    opponentSelect.disabled = disabled;
+}
+
 async function startConversation() {
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     
-    // Disable start button immediately to prevent multiple clicks
-    startButton.disabled = true;
-    
     try {
+        // Disable start button immediately to prevent multiple clicks
+        startButton.disabled = true;
+        
         const hasPermission = await requestMicrophonePermission();
         if (!hasPermission) {
             alert('Microphone permission is required for the conversation.');
-            // Re-enable start button if permission is denied
             startButton.disabled = false;
             return;
-        }const signedUrl = await getSignedUrl();
+        }
+        
+        // Get selected opponent
+        const selectedOpponent = document.getElementById('opponent').value;
+        
+        const signedUrl = await getSignedUrl(selectedOpponent);
         //const agentId = await getAgentId(); // You can switch to agentID for public agents
         
         // Get user stance and calculate opposite AI stance
@@ -236,15 +303,19 @@ async function startConversation() {
                 topic: topicText,
                 user_stance: userStance,
                 ai_stance: aiStance
-            },            onConnect: () => {
+            },
+            onConnect: () => {
                 console.log('Connected');
                 updateStatus(true);
+                setFormControlsState(true); // Disable form controls
                 startButton.style.display = 'none';
                 endButton.disabled = false;
                 endButton.style.display = 'flex';
-            },            onDisconnect: () => {
+            },            
+            onDisconnect: () => {
                 console.log('Disconnected');
                 updateStatus(false);
+                setFormControlsState(false); // Re-enable form controls
                 startButton.disabled = false;
                 startButton.style.display = 'flex';
                 endButton.disabled = true;
@@ -254,17 +325,23 @@ async function startConversation() {
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
+                setFormControlsState(false); // Re-enable form controls on error
+                startButton.disabled = false;
+                startButton.style.display = 'flex';
+                endButton.disabled = true;
+                endButton.style.display = 'none';
                 alert('An error occurred during the conversation.');
             },
             onModeChange: (mode) => {
                 console.log('Mode changed:', mode); // Debug log to see exact mode object
                 updateSpeakingStatus(mode);
             }
-        });    } catch (error) {
+        });
+    } catch (error) {
         console.error('Error starting conversation:', error);
-        alert('Failed to start conversation. Please try again.');
-        // Re-enable start button if there's an error
+        setFormControlsState(false); // Re-enable form controls on error
         startButton.disabled = false;
+        alert('Failed to start conversation. Please try again.');
     }
 }
 
@@ -279,11 +356,13 @@ document.getElementById('startButton').addEventListener('click', startConversati
 document.getElementById('endButton').addEventListener('click', endConversation);
 
 // Initialize avatar when page loads
-document.addEventListener('DOMContentLoaded', () => {    initializeAvatar();
+document.addEventListener('DOMContentLoaded', () => {
+    initializeAvatar();
     
-    // Enable start button when both topic and stance are selected
+    // Enable start button when all three fields are selected
     const topicSelect = document.getElementById('topic');
     const stanceSelect = document.getElementById('stance');
+    const opponentSelect = document.getElementById('opponent');
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     
@@ -293,11 +372,17 @@ document.addEventListener('DOMContentLoaded', () => {    initializeAvatar();
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
         const stanceSelected = stanceSelect.value !== '';
-        startButton.disabled = !(topicSelected && stanceSelected);
+        const opponentSelected = opponentSelect.value !== '';
+        startButton.disabled = !(topicSelected && stanceSelected && opponentSelected);
     }
     
+    // Add event listeners for all form controls
     topicSelect.addEventListener('change', checkFormValidity);
     stanceSelect.addEventListener('change', checkFormValidity);
+    opponentSelect.addEventListener('change', () => {
+        checkFormValidity();
+        initializeAvatar(); // Update avatar when opponent changes
+    });
     
     // Initial check
     checkFormValidity();
