@@ -35,7 +35,7 @@
     pm2 save
     ```
 
-6. Visit localhost
+6. Visit hosted website
 
     ```bash
     https://ai-debator.roamify.tech
