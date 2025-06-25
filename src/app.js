@@ -1,9 +1,20 @@
 // --- src/app.js ---
+// Modified to use a single debate agent instead of multiple agents
 import { Conversation } from '@elevenlabs/client';
 
 let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
+
+// Track the current debater and define the rotation order
+// The rotation order is: 1. Nelson Mandela, 2. Taylor Swift, 3. Michelle Chong
+let currentDebaterIndex = 0; // Start with the first debater (Nelson)
+const debaterRotation = ['nelson', 'taylor', 'michelle']; // Order matters!
+let currentDebater = debaterRotation[currentDebaterIndex];
+
+// Log the initial setup for debugging
+console.log(`Initial setup: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
+console.log(`Debater rotation order: ${debaterRotation.join(' -> ')}`);
 
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
@@ -97,6 +108,8 @@ function createAvatarSVG() {
 
 // Create celebrity avatar with image
 function createCelebrityAvatar(opponent) {
+    console.log(`Creating avatar for opponent: "${opponent}"`);
+    
     const imageMap = {
         'michelle': 'michelle.jpg',
         'nelson': 'nelson.jpg', 
@@ -105,6 +118,8 @@ function createCelebrityAvatar(opponent) {
     };
     
     const imageSrc = imageMap[opponent];
+    console.log(`Image source for ${opponent}: ${imageSrc ? imageSrc : 'not found - using fallback'}`);
+    
     if (!imageSrc) return createAvatarSVG(); // fallback to doctor avatar
     
     return `
@@ -127,19 +142,13 @@ function createCelebrityAvatar(opponent) {
     `;
 }
 
-// Initialize avatar
+// Initialize avatar with the current debater (initially Nelson)
 function initializeAvatar() {
     const avatarWrapper = document.getElementById('animatedAvatar');
-    const opponentSelect = document.getElementById('opponent');
     
     if (avatarWrapper) {
-        const selectedOpponent = opponentSelect ? opponentSelect.value : '';
-        
-        if (selectedOpponent) {
-            avatarWrapper.innerHTML = createCelebrityAvatar(selectedOpponent);
-        } else {
-            avatarWrapper.innerHTML = createAvatarSVG();
-        }
+        // Always use the current debater from our rotation
+        avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
     }
 }
 
@@ -215,9 +224,10 @@ async function requestMicrophonePermission() {
     }
 }
 
-async function getSignedUrl(opponent) {
+async function getSignedUrl() {
     try {
-        const url = opponent ? `/api/signed-url?opponent=${opponent}` : '/api/signed-url';
+        // Always fetch using the default agent URL
+        const url = '/api/signed-url';
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to get signed URL');
         const data = await response.json();
@@ -306,11 +316,9 @@ function updateSpeakingStatus(mode) {
 // Function to disable/enable form controls
 function setFormControlsState(disabled) {
     const topicSelect = document.getElementById('topic');
-    const opponentSelect = document.getElementById('opponent');
     
     topicSelect.disabled = disabled;
-    opponentSelect.disabled = disabled;
-    // Removed stanceSelect reference since it no longer exists
+    // Opponent selection has been removed, only controlling topic now
 }
 
 async function startConversation() {
@@ -327,13 +335,19 @@ async function startConversation() {
             alert('Microphone permission is required for the conversation.');
             startButton.disabled = false;
             return;
+        }        // We're using a single agent for all debates, with Nelson as the initial opponent
+        // Reset to Nelson Mandela when starting a new conversation
+        currentDebaterIndex = 0; // Reset to first in rotation (Nelson)
+        currentDebater = debaterRotation[currentDebaterIndex];
+        
+        // Update avatar to Nelson
+        const avatarWrapper = document.getElementById('animatedAvatar');
+        if (avatarWrapper) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
         }
         
-        // Get selected opponent
-        const selectedOpponent = document.getElementById('opponent').value;
-        
-        const signedUrl = await getSignedUrl(selectedOpponent);
-        //const agentId = await getAgentId(); // You can switch to agentID for public agents
+        // Get signed URL without passing opponent (server will use default agent)
+        const signedUrl = await getSignedUrl();
         
         // Set user stance to "for" and AI stance to "against" by default
         const userStance = "for";
@@ -341,15 +355,14 @@ async function startConversation() {
         
         // Get the actual topic text instead of the value
         const topicSelect = document.getElementById('topic');
-        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
-        
-        conversation = await Conversation.startSession({
+        const topicText = topicSelect.options[topicSelect.selectedIndex].text;          conversation = await Conversation.startSession({
             signedUrl: signedUrl,
-            //agentId: agentId, // You can switch to agentID for public agents
+            // Using a single agent for all debates
             dynamicVariables: {
                 topic: topicText,
                 user_stance: userStance,
-                ai_stance: aiStance
+                ai_stance: aiStance,
+                opponent: currentDebater // Pass the current debater from rotation
             },
             onConnect: () => {
                 console.log('Connected');
@@ -360,7 +373,13 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
-            },            
+                
+                // Enable and show transfer agent button
+                const transferButton = document.getElementById('transferAgent');
+                if (transferButton) {
+                    transferButton.disabled = false;
+                    transferButton.style.display = 'flex';                }
+            },
             onDisconnect: () => {
                 console.log('Disconnected');
                 updateStatus(false);
@@ -371,8 +390,15 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
-                updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
-                stopMouthAnimation(); // Ensure avatar animation stops
+                
+                // Hide transfer agent button
+                const transferButton = document.getElementById('transferAgent');
+                if (transferButton) {
+                    transferButton.disabled = true;
+                    transferButton.style.display = 'none';
+                }
+                
+                updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect                stopMouthAnimation(); // Ensure avatar animation stops
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -383,6 +409,14 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                
+                // Hide transfer agent button
+                const transferButton = document.getElementById('transferAgent');
+                if (transferButton) {
+                    transferButton.disabled = true;
+                    transferButton.style.display = 'none';
+                }
+                
                 alert('An error occurred during the conversation.');
             },
             onModeChange: (mode) => {
@@ -407,6 +441,139 @@ async function endConversation() {
 
 // Track if the summary button was clicked to request a summary
 let summarizeRequested = false;
+
+//Function to transfer the agent to another conversation
+async function transferAgent() {    
+    if (conversation) {
+        try {   
+            // Disable the transfer button to prevent multiple clicks
+            const transferButton = document.getElementById('transferAgent');
+            if (transferButton) {
+                transferButton.disabled = true;
+                transferButton.classList.add('loading');
+                transferButton.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                        <polyline points="9 10 4 15 9 20"></polyline>
+                    </svg>
+                    Transferring Agent...
+                `;
+            }
+              // Add debugging information before rotation
+            console.log(`Before rotation: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
+              // Rotate to the next debater in sequence
+            // From Nelson (0) → Taylor (1) → Michelle (2) → back to Nelson (0)
+            currentDebaterIndex = (currentDebaterIndex + 1) % debaterRotation.length;
+            currentDebater = debaterRotation[currentDebaterIndex];
+            
+            // Show feedback to user
+            alert(`Switching to ${currentDebater.charAt(0).toUpperCase() + currentDebater.slice(1)}...`);
+            
+            // More debugging
+            console.log(`After rotation: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}, full rotation=${debaterRotation}`);
+            
+            // Update the avatar to match the new debater
+            const avatarWrapper = document.getElementById('animatedAvatar');
+            if (avatarWrapper) {
+                avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
+                console.log(`Avatar updated to: ${currentDebater}`);
+            } else {
+                console.error('Avatar wrapper element not found!');
+            }
+            
+            console.log(`Transfer agent requested at ${new Date().toISOString()}, switching to ${currentDebater}`);
+            
+            try {                // Prepare the transfer prompt based on the current debater
+                // The prompt is based on WHO WE WANT TO TRANSFER TO (currentDebater)
+                let transferPrompt = "";
+                if (currentDebater === 'taylor') {
+                    transferPrompt = "I want to debate Taylor Swift now while keepting the same topic and context.";
+                } else if (currentDebater === 'michelle') {
+                    transferPrompt = "I want to debate Michelle Chong now while keeping the same topic and context.";
+                } else if (currentDebater === 'nelson') {
+                    transferPrompt = "I want to debate Nelson Mandela now while keeping the same topic and context.";
+                } else {
+                    // Fallback
+                    transferPrompt = `I want to debate ${currentDebater} now.`;
+                }
+                
+                console.log(`Generated transfer prompt: "${transferPrompt}" for target debater: ${currentDebater}`);
+                
+                console.log(`Sending transfer prompt for ${currentDebater}: "${transferPrompt}"`);
+                
+                // Method 1: Using sendTextMessage (original method)
+                if (typeof conversation.sendTextMessage === 'function') {
+                    await conversation.sendTextMessage(transferPrompt);
+                    console.log('Transfer requested using sendTextMessage');
+                } 
+                // Method 2: Using sendUserMessage 
+                else if (typeof conversation.sendUserMessage === 'function') {
+                    await conversation.sendUserMessage(transferPrompt);
+                    console.log('Transfer requested using sendUserMessage');
+                }
+                // Method 3: Using prompt
+                else if (typeof conversation.prompt === 'function') {
+                    await conversation.prompt(transferPrompt);
+                    console.log('Transfer requested using prompt');
+                }                
+                // Method 4: Using write
+                else if (typeof conversation.write === 'function') {
+                    await conversation.write(transferPrompt);
+                    console.log('Transfer requested using write');
+                }
+                // Method 5: Using ask
+                else if (typeof conversation.ask === 'function') {
+                    await conversation.ask(transferPrompt);
+                    console.log('Transfer requested using ask');
+                }
+                // Method 6: If none of the above works, log the available methods and information
+                else {
+                    console.error('No suitable message sending method found on conversation object');
+                    console.log('Available methods:', 
+                        Object.getOwnPropertyNames(Object.getPrototypeOf(conversation)));
+                    console.log('Conversation object keys:', Object.keys(conversation));
+                    console.log('Conversation object:', conversation);
+                    throw new Error('No suitable method to send message to AI');
+                }
+            } catch (innerError) {
+                console.error('Error sending transfer message:', innerError);
+                throw innerError;
+            }
+            
+            // Re-enable the transfer button after a short delay
+            setTimeout(() => {
+                if (transferButton) {
+                    transferButton.disabled = false;
+                    transferButton.classList.remove('loading');
+                    transferButton.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                            <polyline points="9 10 4 15 9 20"></polyline>
+                        </svg>
+                        Transfer Agent
+                    `;
+                }
+            }, 3000);
+        } catch (error) {
+            console.error('Error transferring agent:', error);
+            alert('Failed to transfer agent. Please try again.');
+            
+            // Re-enable the transfer button on error
+            const transferButton = document.getElementById('transferAgent');
+            if (transferButton) {
+                transferButton.disabled = false;
+                transferButton.classList.remove('loading');
+                transferButton.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                        <polyline points="9 10 4 15 9 20"></polyline>
+                    </svg>
+                    Transfer Agent
+                `;
+            }
+        }
+    }
+}
 
 // Function to request a summary of the conversation
 async function summarizeConversation() {
@@ -534,14 +701,21 @@ async function summarizeConversation() {
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
+document.getElementById('transferAgent').addEventListener('click', transferAgent);
+
 
 // Initialize avatar when page loads
 document.addEventListener('DOMContentLoaded', () => {
+    // Reset to ensure we start with Nelson
+    currentDebaterIndex = 0;
+    currentDebater = debaterRotation[currentDebaterIndex];
+    console.log(`DOM loaded: Setting initial debater to ${currentDebater} (index ${currentDebaterIndex})`);
+    
+    // Initialize avatar with Nelson Mandela by default
     initializeAvatar();
     
-    // Enable start button when topic and opponent are selected
+    // Enable start button when topic is selected
     const topicSelect = document.getElementById('topic');
-    const opponentSelect = document.getElementById('opponent');
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     const summaryButton = document.getElementById('summaryButton');
@@ -550,18 +724,19 @@ document.addEventListener('DOMContentLoaded', () => {
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
     
-    function checkFormValidity() {
-        const topicSelected = topicSelect.value !== '';
-        const opponentSelected = opponentSelect.value !== '';
-        startButton.disabled = !(topicSelected && opponentSelected);
+    // Initialize transfer button state
+    const transferButton = document.getElementById('transferAgent');
+    if (transferButton) {
+        transferButton.style.display = 'none';
     }
     
-    // Add event listeners for all form controls
+    function checkFormValidity() {
+        const topicSelected = topicSelect.value !== '';
+        startButton.disabled = !topicSelected;
+    }
+    
+    // Add event listener for topic selection
     topicSelect.addEventListener('change', checkFormValidity);
-    opponentSelect.addEventListener('change', () => {
-        checkFormValidity();
-        initializeAvatar(); // Update avatar when opponent changes
-    });
     
     // Initial check
     checkFormValidity();
