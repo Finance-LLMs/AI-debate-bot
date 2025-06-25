@@ -1061,3 +1061,193 @@ body::before {
     border-radius: 12px;
     overflow: hidden;
 }
+
+/* Agent Sequence Styles */
+.agent-sequence-info {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+    border-radius: 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+.agent-sequence-info h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.agent-sequence-info p {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.sequence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.sequence-item {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    padding: 0.25rem 0;
+}
+
+/* Agent Indicator */
+.agent-indicator {
+    position: fixed;
+    top: 6rem;
+    right: 1rem;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    padding: 1rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    z-index: 50;
+    min-width: 200px;
+}
+
+.agent-sequence h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.agents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.agent-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.agent-item.pending {
+    background: #f9fafb;
+    color: #6b7280;
+}
+
+.agent-item.active {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    box-shadow: 0 4px 12px -2px rgba(102, 126, 234, 0.4);
+}
+
+.agent-item.completed {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.agent-number {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.agent-item.active .agent-number {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.agent-item.completed .agent-number {
+    background: #10b981;
+    color: white;
+}
+
+.agent-name {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.agent-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* Debate Summary Modal */
+.debate-summary {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.summary-content {
+    background: white;
+    border-radius: 1rem;
+    padding: 2rem;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.summary-content h2 {
+    margin: 0 0 1rem 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.summary-content ul {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+}
+
+.summary-content li {
+    margin: 0.5rem 0;
+    color: #374151;
+}
+
+.close-summary {
+    margin-top: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.close-summary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -2px rgba(102, 126, 234, 0.4);
+}
+
+/* Mobile responsiveness for agent indicator */
+@media (max-width: 768px) {
+    .agent-indicator {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin: 1rem 0;
+        width: 100%;
+    }
+}

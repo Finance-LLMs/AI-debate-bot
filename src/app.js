@@ -4,6 +4,9 @@ import { Conversation } from '@elevenlabs/client';
 let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
+let currentAgentIndex = 0;
+let agentSequence = ['nelson', 'michelle', 'taylor', 'singapore_uncle'];
+let conversationChain = []; // Store conversation IDs for the chain
 
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
@@ -130,17 +133,18 @@ function createCelebrityAvatar(opponent) {
 // Initialize avatar
 function initializeAvatar() {
     const avatarWrapper = document.getElementById('animatedAvatar');
-    const opponentSelect = document.getElementById('opponent');
+    const currentAgent = agentSequence[currentAgentIndex];
     
     if (avatarWrapper) {
-        const selectedOpponent = opponentSelect ? opponentSelect.value : '';
-        
-        if (selectedOpponent) {
-            avatarWrapper.innerHTML = createCelebrityAvatar(selectedOpponent);
+        if (currentAgent) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(currentAgent);
         } else {
             avatarWrapper.innerHTML = createAvatarSVG();
         }
     }
+    
+    // Update agent indicator
+    updateAgentIndicator();
 }
 
 // Animate mouth when speaking
@@ -215,9 +219,10 @@ async function requestMicrophonePermission() {
     }
 }
 
-async function getSignedUrl(opponent) {
+async function getSignedUrl() {
     try {
-        const url = opponent ? `/api/signed-url?opponent=${opponent}` : '/api/signed-url';
+        const currentAgent = agentSequence[currentAgentIndex];
+        const url = `/api/signed-url?opponent=${currentAgent}`;
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to get signed URL');
         const data = await response.json();
@@ -303,14 +308,73 @@ function updateSpeakingStatus(mode) {
     console.log('Speaking status updated:', { mode, isSpeaking, summarizeRequested }); // Debug log
 }
 
+// Update agent indicator to show current agent and sequence
+function updateAgentIndicator() {
+    let agentIndicator = document.getElementById('agentIndicator');
+    if (!agentIndicator) {
+        // Create agent indicator if it doesn't exist
+        agentIndicator = document.createElement('div');
+        agentIndicator.id = 'agentIndicator';
+        agentIndicator.className = 'agent-indicator';
+        document.querySelector('.debate-container').appendChild(agentIndicator);
+    }
+    
+    const currentAgent = agentSequence[currentAgentIndex];
+    const agentNames = {
+        'nelson': 'Nelson Mandela',
+        'michelle': 'Michelle Chong',
+        'taylor': 'Taylor Swift',
+        'singapore_uncle': 'Kopitiam Uncle'
+    };
+    
+    let indicatorHTML = '<div class="agent-sequence">';
+    indicatorHTML += '<h3>Agent Sequence</h3>';
+    indicatorHTML += '<div class="agents-list">';
+    
+    agentSequence.forEach((agent, index) => {
+        const isActive = index === currentAgentIndex;
+        const isCompleted = index < currentAgentIndex;
+        const statusClass = isActive ? 'active' : (isCompleted ? 'completed' : 'pending');
+        
+        indicatorHTML += `
+            <div class="agent-item ${statusClass}">
+                <div class="agent-number">${index + 1}</div>
+                <div class="agent-name">${agentNames[agent]}</div>
+                ${isActive ? '<div class="agent-status">Speaking</div>' : ''}
+                ${isCompleted ? '<div class="agent-status">Completed</div>' : ''}
+            </div>
+        `;
+    });
+    
+    indicatorHTML += '</div></div>';
+    agentIndicator.innerHTML = indicatorHTML;
+}
+
+// Move to next agent in sequence
+function moveToNextAgent() {
+    if (currentAgentIndex < agentSequence.length - 1) {
+        currentAgentIndex++;
+        initializeAvatar();
+        updateAgentIndicator();
+        return true;
+    }
+    return false; // End of sequence
+}
+
+// Reset agent sequence
+function resetAgentSequence() {
+    currentAgentIndex = 0;
+    conversationChain = [];
+    initializeAvatar();
+    updateAgentIndicator();
+}
+
+
 // Function to disable/enable form controls
 function setFormControlsState(disabled) {
     const topicSelect = document.getElementById('topic');
-    const opponentSelect = document.getElementById('opponent');
     
     topicSelect.disabled = disabled;
-    opponentSelect.disabled = disabled;
-    // Removed stanceSelect reference since it no longer exists
 }
 
 async function startConversation() {
@@ -319,6 +383,9 @@ async function startConversation() {
     const summaryButton = document.getElementById('summaryButton');
     
     try {
+        // Reset agent sequence to start from the beginning
+        resetAgentSequence();
+        
         // Disable start button immediately to prevent multiple clicks
         startButton.disabled = true;
         
@@ -329,10 +396,8 @@ async function startConversation() {
             return;
         }
         
-        // Get selected opponent
-        const selectedOpponent = document.getElementById('opponent').value;
-        
-        const signedUrl = await getSignedUrl(selectedOpponent);
+        // Get signed URL for current agent
+        const signedUrl = await getSignedUrl();
         //const agentId = await getAgentId(); // You can switch to agentID for public agents
         
         // Set user stance to "for" and AI stance to "against" by default
@@ -360,6 +425,14 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
+                
+                // Store conversation ID for the chain
+                if (conversation && conversation.conversationId) {
+                    conversationChain.push({
+                        agent: agentSequence[currentAgentIndex],
+                        conversationId: conversation.conversationId
+                    });
+                }
             },            
             onDisconnect: () => {
                 console.log('Disconnected');
@@ -373,6 +446,9 @@ async function startConversation() {
                 summaryButton.style.display = 'none';
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
+                
+                // Check if we should move to next agent
+                handleAgentTransition();
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -531,6 +607,103 @@ async function summarizeConversation() {
     }
 }
 
+// Handle agent transition when conversation ends
+async function handleAgentTransition() {
+    // Small delay to ensure conversation has fully ended
+    setTimeout(async () => {
+        const hasNextAgent = moveToNextAgent();
+        
+        if (hasNextAgent) {
+            console.log(`Moving to next agent: ${agentSequence[currentAgentIndex]}`);
+            
+            // Auto-start conversation with next agent
+            try {
+                await startNextAgentConversation();
+            } catch (error) {
+                console.error('Error starting next agent conversation:', error);
+                alert('Failed to start conversation with next agent. Please try again.');
+            }
+        } else {
+            console.log('All agents have participated in the debate');
+            alert('Debate complete! All agents have participated.');
+            
+            // Show summary of all conversations
+            showDebateSummary();
+        }
+    }, 1000);
+}
+
+// Start conversation with next agent automatically
+async function startNextAgentConversation() {
+    try {
+        const signedUrl = await getSignedUrl();
+        
+        // Get the actual topic text
+        const topicSelect = document.getElementById('topic');
+        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
+        
+        // Set user stance and AI stance
+        const userStance = "for";
+        const aiStance = "against";
+        
+        conversation = await Conversation.startSession({
+            signedUrl: signedUrl,
+            dynamicVariables: {
+                topic: topicText,
+                user_stance: userStance,
+                ai_stance: aiStance,
+                previous_agents: conversationChain.map(c => c.agent).join(', ')
+            },
+            onConnect: () => {
+                console.log(`Connected to ${agentSequence[currentAgentIndex]}`);
+                updateStatus(true);
+                
+                // Store conversation ID for the chain
+                if (conversation && conversation.conversationId) {
+                    conversationChain.push({
+                        agent: agentSequence[currentAgentIndex],
+                        conversationId: conversation.conversationId
+                    });
+                }
+            },
+            onDisconnect: () => {
+                console.log(`Disconnected from ${agentSequence[currentAgentIndex]}`);
+                updateStatus(false);
+                updateSpeakingStatus({ mode: 'listening' });
+                stopMouthAnimation();
+                handleAgentTransition();
+            },
+            onError: (error) => {
+                console.error('Next agent conversation error:', error);
+                alert('An error occurred during the conversation with the next agent.');
+            },
+            onModeChange: (mode) => {
+                updateSpeakingStatus(mode);
+            }
+        });
+    } catch (error) {
+        console.error('Error starting next agent conversation:', error);
+        throw error;
+    }
+}
+
+// Show summary of entire debate
+function showDebateSummary() {
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'debate-summary';
+    summaryDiv.innerHTML = `
+        <div class="summary-content">
+            <h2>Debate Summary</h2>
+            <p>The debate involved ${conversationChain.length} agents:</p>
+            <ul>
+                ${conversationChain.map(c => `<li>${c.agent}: Conversation ID ${c.conversationId}</li>`).join('')}
+            </ul>
+            <button onclick="this.parentElement.parentElement.remove()" class="close-summary">Close</button>
+        </div>
+    `;
+    document.body.appendChild(summaryDiv);
+}
+
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
@@ -539,9 +712,8 @@ document.getElementById('summaryButton').addEventListener('click', summarizeConv
 document.addEventListener('DOMContentLoaded', () => {
     initializeAvatar();
     
-    // Enable start button when topic and opponent are selected
+    // Enable start button when topic is selected
     const topicSelect = document.getElementById('topic');
-    const opponentSelect = document.getElementById('opponent');
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     const summaryButton = document.getElementById('summaryButton');
@@ -552,16 +724,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
-        const opponentSelected = opponentSelect.value !== '';
-        startButton.disabled = !(topicSelected && opponentSelected);
+        startButton.disabled = !topicSelected;
     }
     
-    // Add event listeners for all form controls
+    // Add event listeners for form controls
     topicSelect.addEventListener('change', checkFormValidity);
-    opponentSelect.addEventListener('change', () => {
-        checkFormValidity();
-        initializeAvatar(); // Update avatar when opponent changes
-    });
     
     // Initial check
     checkFormValidity();
