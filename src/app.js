@@ -5,8 +5,10 @@ let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
 let currentAgentIndex = 0;
-let agentSequence = ['nelson', 'michelle', 'taylor', 'singapore_uncle'];
+let agentSequence = ['nelson', 'michelle', 'taylor']; // Updated sequence for turn-based
 let conversationChain = []; // Store conversation IDs for the chain
+let humanTurnCount = 0;
+let waitingForHuman = false;
 
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
@@ -221,7 +223,8 @@ async function requestMicrophonePermission() {
 
 async function getSignedUrl() {
     try {
-        const currentAgent = agentSequence[currentAgentIndex];
+        // Always start with Nelson for turn-based system
+        const currentAgent = 'nelson';
         const url = `/api/signed-url?opponent=${currentAgent}`;
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to get signed URL');
@@ -319,29 +322,48 @@ function updateAgentIndicator() {
         document.querySelector('.debate-container').appendChild(agentIndicator);
     }
     
-    const currentAgent = agentSequence[currentAgentIndex];
     const agentNames = {
         'nelson': 'Nelson Mandela',
         'michelle': 'Michelle Chong',
-        'taylor': 'Taylor Swift',
-        'singapore_uncle': 'Kopitiam Uncle'
+        'taylor': 'Taylor Swift'
     };
     
     let indicatorHTML = '<div class="agent-sequence">';
-    indicatorHTML += '<h3>Agent Sequence</h3>';
+    indicatorHTML += '<h3>Debate Sequence</h3>';
+    indicatorHTML += '<div class="sequence-description">Nelson → You → Michelle → You → Taylor</div>';
     indicatorHTML += '<div class="agents-list">';
     
-    agentSequence.forEach((agent, index) => {
-        const isActive = index === currentAgentIndex;
-        const isCompleted = index < currentAgentIndex;
+    // Create turn-based display
+    const turns = [
+        { type: 'agent', agent: 'nelson', name: 'Nelson Mandela' },
+        { type: 'human', name: 'Your Response' },
+        { type: 'agent', agent: 'michelle', name: 'Michelle Chong' },
+        { type: 'human', name: 'Your Response' },
+        { type: 'agent', agent: 'taylor', name: 'Taylor Swift' }
+    ];
+    
+    turns.forEach((turn, index) => {
+        let isActive = false;
+        let isCompleted = false;
+        
+        if (turn.type === 'agent') {
+            const agentIndex = agentSequence.indexOf(turn.agent);
+            isActive = agentIndex === currentAgentIndex;
+            isCompleted = agentIndex < currentAgentIndex;
+        } else { // human turn
+            const humanTurnIndex = Math.floor(index / 2); // 0 for first human turn, 1 for second
+            isActive = waitingForHuman && humanTurnIndex === humanTurnCount;
+            isCompleted = humanTurnIndex < humanTurnCount;
+        }
+        
         const statusClass = isActive ? 'active' : (isCompleted ? 'completed' : 'pending');
         
         indicatorHTML += `
-            <div class="agent-item ${statusClass}">
-                <div class="agent-number">${index + 1}</div>
-                <div class="agent-name">${agentNames[agent]}</div>
-                ${isActive ? '<div class="agent-status">Speaking</div>' : ''}
-                ${isCompleted ? '<div class="agent-status">Completed</div>' : ''}
+            <div class="turn-item ${statusClass} ${turn.type}">
+                <div class="turn-number">${index + 1}</div>
+                <div class="turn-name">${turn.name}</div>
+                ${isActive ? '<div class="turn-status">Active</div>' : ''}
+                ${isCompleted ? '<div class="turn-status">Completed</div>' : ''}
             </div>
         `;
     });
@@ -365,8 +387,12 @@ function moveToNextAgent() {
 function resetAgentSequence() {
     currentAgentIndex = 0;
     conversationChain = [];
+    humanTurnCount = 0;
+    waitingForHuman = false;
+    hideUserPrompt();
     initializeAvatar();
     updateAgentIndicator();
+    resetTurnTracking();
 }
 
 
@@ -447,8 +473,15 @@ async function startConversation() {
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
                 
-                // Check if we should move to next agent
-                handleAgentTransition();
+                // Show prompt for human turn after agent finishes
+                if (currentAgentIndex < agentSequence.length) {
+                    showUserPrompt();
+                } else {
+                    // End of debate sequence
+                    console.log('Debate sequence complete');
+                    alert('Debate complete! All agents have participated.');
+                    showDebateSummary();
+                }
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -607,83 +640,19 @@ async function summarizeConversation() {
     }
 }
 
-// Handle agent transition when conversation ends
-async function handleAgentTransition() {
-    // Small delay to ensure conversation has fully ended
-    setTimeout(async () => {
-        const hasNextAgent = moveToNextAgent();
-        
-        if (hasNextAgent) {
-            console.log(`Moving to next agent: ${agentSequence[currentAgentIndex]}`);
-            
-            // Auto-start conversation with next agent
-            try {
-                await startNextAgentConversation();
-            } catch (error) {
-                console.error('Error starting next agent conversation:', error);
-                alert('Failed to start conversation with next agent. Please try again.');
-            }
-        } else {
-            console.log('All agents have participated in the debate');
-            alert('Debate complete! All agents have participated.');
-            
-            // Show summary of all conversations
-            showDebateSummary();
+// Handle manual human turn completion  
+async function completeHumanTurn() {
+    await signalHumanTurn();
+    hideUserPrompt();
+    
+    // Move to next agent after human turn
+    if (humanTurnCount <= 2) { // We have max 2 human turns
+        currentAgentIndex++;
+        if (currentAgentIndex < agentSequence.length) {
+            initializeAvatar();
+            updateAgentIndicator();
+            console.log(`Next agent: ${agentSequence[currentAgentIndex]}`);
         }
-    }, 1000);
-}
-
-// Start conversation with next agent automatically
-async function startNextAgentConversation() {
-    try {
-        const signedUrl = await getSignedUrl();
-        
-        // Get the actual topic text
-        const topicSelect = document.getElementById('topic');
-        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
-        
-        // Set user stance and AI stance
-        const userStance = "for";
-        const aiStance = "against";
-        
-        conversation = await Conversation.startSession({
-            signedUrl: signedUrl,
-            dynamicVariables: {
-                topic: topicText,
-                user_stance: userStance,
-                ai_stance: aiStance,
-                previous_agents: conversationChain.map(c => c.agent).join(', ')
-            },
-            onConnect: () => {
-                console.log(`Connected to ${agentSequence[currentAgentIndex]}`);
-                updateStatus(true);
-                
-                // Store conversation ID for the chain
-                if (conversation && conversation.conversationId) {
-                    conversationChain.push({
-                        agent: agentSequence[currentAgentIndex],
-                        conversationId: conversation.conversationId
-                    });
-                }
-            },
-            onDisconnect: () => {
-                console.log(`Disconnected from ${agentSequence[currentAgentIndex]}`);
-                updateStatus(false);
-                updateSpeakingStatus({ mode: 'listening' });
-                stopMouthAnimation();
-                handleAgentTransition();
-            },
-            onError: (error) => {
-                console.error('Next agent conversation error:', error);
-                alert('An error occurred during the conversation with the next agent.');
-            },
-            onModeChange: (mode) => {
-                updateSpeakingStatus(mode);
-            }
-        });
-    } catch (error) {
-        console.error('Error starting next agent conversation:', error);
-        throw error;
     }
 }
 
@@ -694,15 +663,99 @@ function showDebateSummary() {
     summaryDiv.innerHTML = `
         <div class="summary-content">
             <h2>Debate Summary</h2>
-            <p>The debate involved ${conversationChain.length} agents:</p>
+            <p>The turn-based debate has completed with the following sequence:</p>
             <ul>
-                ${conversationChain.map(c => `<li>${c.agent}: Conversation ID ${c.conversationId}</li>`).join('')}
+                <li>Nelson Mandela → Your Response</li>
+                <li>Michelle Chong → Your Response</li>
+                <li>Taylor Swift</li>
             </ul>
+            <p>Total human turns: ${humanTurnCount}</p>
             <button onclick="this.parentElement.parentElement.remove()" class="close-summary">Close</button>
         </div>
     `;
     document.body.appendChild(summaryDiv);
 }
+
+// Function to signal human turn to backend
+async function signalHumanTurn() {
+    try {
+        await fetch('/human-turn', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        console.log('Human turn signaled to backend');
+    } catch (error) {
+        console.error('Error signaling human turn:', error);
+    }
+}
+
+// Function to reset turn tracking
+async function resetTurnTracking() {
+    try {
+        await fetch('/reset-turns', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        humanTurnCount = 0;
+        waitingForHuman = false;
+        console.log('Turn tracking reset');
+    } catch (error) {
+        console.error('Error resetting turn tracking:', error);
+    }
+}
+
+// Show user prompt for their turn
+function showUserPrompt() {
+    waitingForHuman = true;
+    
+    // Create or update the user prompt UI
+    let promptDiv = document.getElementById('userPrompt');
+    if (!promptDiv) {
+        promptDiv = document.createElement('div');
+        promptDiv.id = 'userPrompt';
+        promptDiv.className = 'user-prompt';
+        document.querySelector('.debate-container').appendChild(promptDiv);
+    }
+    
+    const agentNames = {
+        'nelson': 'Nelson Mandela',
+        'michelle': 'Michelle Chong', 
+        'taylor': 'Taylor Swift'
+    };
+    
+    const currentAgentName = agentNames[agentSequence[currentAgentIndex - 1]] || 'the agent';
+    
+    promptDiv.innerHTML = `
+        <div class="prompt-content">
+            <h3>Your Turn!</h3>
+            <p>${currentAgentName} has finished speaking. Please respond to continue the debate.</p>
+            <p><strong>Speak now to give your response...</strong></p>
+            <button onclick="signalHumanTurn(); hideUserPrompt();" class="manual-turn-button">
+                I've finished speaking
+            </button>
+        </div>
+    `;
+    
+    promptDiv.style.display = 'block';
+}
+
+// Hide user prompt
+function hideUserPrompt() {
+    const promptDiv = document.getElementById('userPrompt');
+    if (promptDiv) {
+        promptDiv.style.display = 'none';
+    }
+    waitingForHuman = false;
+}
+
+// Make functions globally accessible for onclick handlers
+window.signalHumanTurn = signalHumanTurn;
+window.hideUserPrompt = hideUserPrompt;
+window.completeHumanTurn = completeHumanTurn;
 
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);

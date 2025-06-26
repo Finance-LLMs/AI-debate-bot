@@ -10,6 +10,11 @@ app.use(cors());
 app.use(express.json());
 app.use("/static", express.static(path.join(__dirname, "../dist")));
 
+// Track turn-taking state
+let currentSpeaker = null;
+let humanTurnCount = 0;
+let currentConversationId = null;
+
 app.get("/api/signed-url", async (req, res) => {
   try {
     const { opponent } = req.query;
@@ -61,49 +66,27 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../dist/index.html"));
 });
 
-// Webhook endpoint for agent-to-agent conversation passing
+// Webhook endpoint for turn-based conversation management
 app.post("/webhook", express.json(), async (req, res) => {
   try {
     console.log("Webhook received:", req.body);
     
-    // 1. Get conversation_id from webhook payload
     const { conversation_id, agent_id } = req.body;
+    currentConversationId = conversation_id;
     
-    // 2. Get current agent details from the conversation
-    const currentAgentId = agent_id;
-    
-    // 3. Determine next agent in the sequence
-    const agentSequence = {
-      [process.env.NELSON_AGENT_ID]: process.env.MICHELLE_AGENT_ID,
-      [process.env.MICHELLE_AGENT_ID]: process.env.TAYLOR_AGENT_ID,
-      [process.env.TAYLOR_AGENT_ID]: process.env.SINGAPORE_UNCLE_AGENT_ID,
-      [process.env.SINGAPORE_UNCLE_AGENT_ID]: null // End of sequence
-    };
-    
-    const nextAgentId = agentSequence[currentAgentId];
-    
-    if (nextAgentId) {
-      // 4. Fetch full conversation history
-      const conversationResponse = await fetch(
-        `https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`,
-        {
-          headers: {
-            "xi-api-key": process.env.XI_API_KEY
-          }
-        }
-      );
-      
-      if (!conversationResponse.ok) {
-        throw new Error(`Failed to fetch conversation: ${conversationResponse.status}`);
-      }
-      
-      const conversationHistory = await conversationResponse.json();
-      
-      // 5. Start new conversation with next agent
-      await startNextAgentConversation(nextAgentId, conversationHistory, conversation_id);
-    } else {
-      console.log("End of agent sequence reached");
+    // Track who just finished speaking
+    if (agent_id === process.env.NELSON_AGENT_ID) {
+      currentSpeaker = 'human'; // After Nelson, it's human's turn
+      console.log("Nelson finished speaking, waiting for human turn");
+    } else if (agent_id === process.env.MICHELLE_AGENT_ID) {
+      currentSpeaker = 'human'; // After Michelle, it's human's turn  
+      console.log("Michelle finished speaking, waiting for human turn");
+    } else if (agent_id === process.env.TAYLOR_AGENT_ID) {
+      console.log("Taylor finished speaking, debate sequence complete");
+      currentSpeaker = null; // End of sequence
     }
+    
+    console.log(`Current speaker: ${currentSpeaker}, Human turn count: ${humanTurnCount}`);
     
     res.status(200).json({ status: "success" });
   } catch (error) {
@@ -112,47 +95,79 @@ app.post("/webhook", express.json(), async (req, res) => {
   }
 });
 
-// Function to start conversation with next agent
-async function startNextAgentConversation(nextAgentId, conversationHistory, originalConversationId) {
+// Endpoint to detect when human starts speaking
+app.post("/human-turn", express.json(), async (req, res) => {
   try {
-    // Extract the conversation transcript to pass context
-    const messages = conversationHistory.messages || [];
+    console.log("Human turn detected");
+    currentSpeaker = 'human';
+    humanTurnCount++;
     
-    // Build context from previous conversation
-    let conversationContext = "Previous conversation:\n";
-    messages.forEach((message, index) => {
-      const speaker = message.role === 'user' ? 'Human' : 'Agent';
-      conversationContext += `${speaker}: ${message.content}\n`;
-    });
+    console.log(`Human turn count: ${humanTurnCount}`);
     
-    // Create a new conversation with the next agent
-    const newConversationResponse = await fetch(
-      "https://api.elevenlabs.io/v1/convai/conversations",
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": process.env.XI_API_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          agent_id: nextAgentId,
-          // Pass the conversation context as initial message
-          initial_message: `Continue this debate. Here's what has been discussed so far:\n\n${conversationContext}\n\nPlease provide your perspective on this topic.`
-        })
-      }
-    );
-    
-    if (!newConversationResponse.ok) {
-      throw new Error(`Failed to create new conversation: ${newConversationResponse.status}`);
+    // Trigger next AI agent based on turn count
+    if (humanTurnCount === 1 && currentConversationId) {
+      // Trigger Michelle after first human turn
+      console.log("Starting Michelle after first human turn");
+      await startNextAgentConversation(process.env.MICHELLE_AGENT_ID, currentConversationId);
+    } else if (humanTurnCount === 2 && currentConversationId) {
+      // Trigger Taylor after second human turn
+      console.log("Starting Taylor after second human turn");
+      await startNextAgentConversation(process.env.TAYLOR_AGENT_ID, currentConversationId);
     }
     
-    const newConversation = await newConversationResponse.json();
-    console.log(`Started new conversation with agent ${nextAgentId}:`, newConversation.conversation_id);
+    res.status(200).json({ status: "success" });
+  } catch (error) {
+    console.error("Human turn error:", error);
+    res.status(500).json({ error: "Human turn processing failed" });
+  }
+});
+
+// Reset turn tracking for new debates
+app.post("/reset-turns", express.json(), async (req, res) => {
+  try {
+    currentSpeaker = null;
+    humanTurnCount = 0;
+    currentConversationId = null;
+    console.log("Turn tracking reset");
+    res.status(200).json({ status: "success" });
+  } catch (error) {
+    console.error("Reset turns error:", error);
+    res.status(500).json({ error: "Reset turns failed" });
+  }
+});
+
+// Function to start conversation with next agent
+// Updated function to start conversation with next agent (simpler version for turn-based)
+async function startNextAgentConversation(nextAgentId, conversationId) {
+  try {
+    console.log(`Starting conversation with agent ${nextAgentId}`);
     
-    // Optionally, you can store the relationship between conversations
-    // Store mapping: originalConversationId -> newConversation.conversation_id
+    // For turn-based system, we continue the same conversation rather than creating new ones
+    // The context is already maintained within the same conversation
     
-    return newConversation;
+    // Get signed URL for the next agent to continue the conversation
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${nextAgentId}`,
+      {
+        method: "GET",
+        headers: {
+          "xi-api-key": process.env.XI_API_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to get signed URL for next agent");
+    }
+
+    const data = await response.json();
+    console.log(`Next agent ${nextAgentId} can join with signed URL: ${data.signed_url}`);
+    
+    // In a real implementation, you would notify your frontend about the new agent
+    // For now, we'll just log the success
+    console.log(`Agent ${nextAgentId} is ready to join conversation ${conversationId}`);
+    
+    return { agentId: nextAgentId, signedUrl: data.signed_url, conversationId };
   } catch (error) {
     console.error("Error starting next agent conversation:", error);
     throw error;
