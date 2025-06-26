@@ -117,13 +117,23 @@ function createCelebrityAvatar(opponent) {
         'singapore_uncle': 'singapore_uncle.jpg'
     };
     
+    // Name mapping with AI highlighted in each name
+    const nameMap = {
+        'nelson': 'Nelson M<span class="ai-highlight">AI</span>ndela',
+        'barbarella': 'Barb<span class="ai-highlight">AI</span>rella',
+        'taylor': 'T<span class="ai-highlight">AI</span>lor Swift'
+    };
+    
     const imageSrc = imageMap[opponent];
+    const displayName = nameMap[opponent] || opponent.charAt(0).toUpperCase() + opponent.slice(1);
+    
     console.log(`Image source for ${opponent}: ${imageSrc ? imageSrc : 'not found - using fallback'}`);
     
     if (!imageSrc) return createAvatarSVG(); // fallback to doctor avatar
     
     return `
         <div class="celebrity-avatar-container">
+            <div class="avatar-name-tag">${displayName}</div>
             <img 
                 src="/static/images/${imageSrc}" 
                 alt="${opponent} avatar" 
@@ -516,8 +526,7 @@ async function transferToAgent(targetAgent) {
             });
               
             console.log(`Before transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-              
-            // Find the index of the target agent in our rotation
+                // Find the index of the target agent in our rotation
             const targetIndex = debaterRotation.indexOf(targetAgent);
             if (targetIndex !== -1) {
                 currentDebaterIndex = targetIndex;
@@ -527,9 +536,7 @@ async function transferToAgent(targetAgent) {
                 throw new Error(`Invalid agent: ${targetAgent}`);
             }
             
-            // Show feedback to user
-            alert(`Switching to ${currentDebater.charAt(0).toUpperCase() + currentDebater.slice(1)}...`);
-            
+            // Log the transfer for debugging
             console.log(`After transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
             
             // Update the avatar to match the new debater
