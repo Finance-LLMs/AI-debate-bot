@@ -7,9 +7,9 @@ let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
 
 // Track the current debater and define the rotation order
-// The rotation order is: 1. Nelson Mandela, 2. Taylor Swift, 3. Michelle Chong
+// The rotation order is: 1. Nelson Mandela, 2. Barbarella, 3. Taylor Swift
 let currentDebaterIndex = 0; // Start with the first debater (Nelson)
-const debaterRotation = ['nelson', 'taylor', 'michelle']; // Order matters!
+const debaterRotation = ['nelson', 'barbarella', 'taylor']; // Order matters!
 let currentDebater = debaterRotation[currentDebaterIndex];
 
 // Log the initial setup for debugging
@@ -111,7 +111,7 @@ function createCelebrityAvatar(opponent) {
     console.log(`Creating avatar for opponent: "${opponent}"`);
     
     const imageMap = {
-        'michelle': 'michelle.jpg',
+        'barbarella': 'barbarella.jpg',
         'nelson': 'nelson.jpg', 
         'taylor': 'taylor.jpg',
         'singapore_uncle': 'singapore_uncle.jpg'
@@ -254,6 +254,13 @@ function updateSpeakingStatus(mode) {
     const statusElement = document.getElementById('speakingStatus');
     const summaryButton = document.getElementById('summaryButton');
     
+    // Get references to all transfer buttons
+    const transferButtons = [
+        document.getElementById('transferNelson'),
+        document.getElementById('transferBarbarella'),
+        document.getElementById('transferTaylor')
+    ];
+    
     // Update based on the exact mode string we receive
     const isSpeaking = mode.mode === 'speaking';
     statusElement.textContent = isSpeaking ? 'Agent Speaking' : 'Agent Silent';
@@ -262,10 +269,18 @@ function updateSpeakingStatus(mode) {
     // Animate avatar based on speaking state
     if (isSpeaking) {
         startMouthAnimation();
+        
         // Disable summary button when agent is speaking
         if (summaryButton) {
             summaryButton.disabled = true;
         }
+        
+        // Disable all transfer buttons while agent is speaking
+        transferButtons.forEach(btn => {
+            if (btn && btn.style.display !== 'none') {
+                btn.disabled = true;
+            }
+        });
     } else {
         stopMouthAnimation();
         
@@ -276,6 +291,13 @@ function updateSpeakingStatus(mode) {
         if (summaryButton && summaryButton.style.display !== 'none' && !summarizeRequested) {
             summaryButton.disabled = false;
         }
+        
+        // Re-enable all transfer buttons when agent stops speaking (as long as they're visible)
+        transferButtons.forEach(btn => {
+            if (btn && btn.style.display !== 'none') {
+                btn.disabled = false;
+            }
+        });
         
         // If the agent just finished speaking and we requested a summary,
         // this is likely the end of the summary response
@@ -373,12 +395,19 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
+                  // Enable and show transfer agent buttons
+                const transferButtons = [
+                    document.getElementById('transferNelson'),
+                    document.getElementById('transferBarbarella'),
+                    document.getElementById('transferTaylor')
+                ];
                 
-                // Enable and show transfer agent button
-                const transferButton = document.getElementById('transferAgent');
-                if (transferButton) {
-                    transferButton.disabled = false;
-                    transferButton.style.display = 'flex';                }
+                transferButtons.forEach(button => {
+                    if (button) {
+                        button.disabled = false;
+                        button.style.display = 'flex';
+                    }
+                });
             },
             onDisconnect: () => {
                 console.log('Disconnected');
@@ -390,15 +419,22 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                  // Hide transfer agent buttons
+                const transferButtons = [
+                    document.getElementById('transferNelson'),
+                    document.getElementById('transferBarbarella'),
+                    document.getElementById('transferTaylor')
+                ];
                 
-                // Hide transfer agent button
-                const transferButton = document.getElementById('transferAgent');
-                if (transferButton) {
-                    transferButton.disabled = true;
-                    transferButton.style.display = 'none';
-                }
+                transferButtons.forEach(button => {
+                    if (button) {
+                        button.disabled = true;
+                        button.style.display = 'none';
+                    }
+                });
                 
-                updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect                stopMouthAnimation(); // Ensure avatar animation stops
+                updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect                
+                stopMouthAnimation(); // Ensure avatar animation stops
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -409,13 +445,19 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                  // Hide transfer agent buttons
+                const transferButtons = [
+                    document.getElementById('transferNelson'),
+                    document.getElementById('transferBarbarella'),
+                    document.getElementById('transferTaylor')
+                ];
                 
-                // Hide transfer agent button
-                const transferButton = document.getElementById('transferAgent');
-                if (transferButton) {
-                    transferButton.disabled = true;
-                    transferButton.style.display = 'none';
-                }
+                transferButtons.forEach(button => {
+                    if (button) {
+                        button.disabled = true;
+                        button.style.display = 'none';
+                    }
+                });
                 
                 alert('An error occurred during the conversation.');
             },
@@ -442,35 +484,53 @@ async function endConversation() {
 // Track if the summary button was clicked to request a summary
 let summarizeRequested = false;
 
-//Function to transfer the agent to another conversation
-async function transferAgent() {    
+// Generic function to transfer to a specific agent
+async function transferToAgent(targetAgent) {    
     if (conversation) {
         try {   
-            // Disable the transfer button to prevent multiple clicks
-            const transferButton = document.getElementById('transferAgent');
-            if (transferButton) {
-                transferButton.disabled = true;
-                transferButton.classList.add('loading');
-                transferButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                        <polyline points="9 10 4 15 9 20"></polyline>
-                    </svg>
-                    Transferring Agent...
-                `;
+            // Find the button corresponding to this agent
+            const buttonId = `transfer${targetAgent.charAt(0).toUpperCase() + targetAgent.slice(1)}`;
+            const transferButton = document.getElementById(buttonId);
+            
+            // Disable all transfer buttons to prevent multiple clicks
+            const allButtons = [
+                document.getElementById('transferNelson'),
+                document.getElementById('transferBarbarella'),
+                document.getElementById('transferTaylor')
+            ];
+            
+            allButtons.forEach(btn => {
+                if (btn) {
+                    btn.disabled = true;
+                    if (btn === transferButton) {
+                        btn.classList.add('loading');
+                        btn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                <polyline points="9 10 4 15 9 20"></polyline>
+                            </svg>
+                            Switching...
+                        `;
+                    }
+                }
+            });
+              
+            console.log(`Before transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
+              
+            // Find the index of the target agent in our rotation
+            const targetIndex = debaterRotation.indexOf(targetAgent);
+            if (targetIndex !== -1) {
+                currentDebaterIndex = targetIndex;
+                currentDebater = debaterRotation[currentDebaterIndex];
+            } else {
+                console.error(`Target agent '${targetAgent}' not found in rotation!`);
+                throw new Error(`Invalid agent: ${targetAgent}`);
             }
-              // Add debugging information before rotation
-            console.log(`Before rotation: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-              // Rotate to the next debater in sequence
-            // From Nelson (0) → Taylor (1) → Michelle (2) → back to Nelson (0)
-            currentDebaterIndex = (currentDebaterIndex + 1) % debaterRotation.length;
-            currentDebater = debaterRotation[currentDebaterIndex];
             
             // Show feedback to user
             alert(`Switching to ${currentDebater.charAt(0).toUpperCase() + currentDebater.slice(1)}...`);
             
-            // More debugging
-            console.log(`After rotation: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}, full rotation=${debaterRotation}`);
+            console.log(`After transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
             
             // Update the avatar to match the new debater
             const avatarWrapper = document.getElementById('animatedAvatar');
@@ -483,96 +543,118 @@ async function transferAgent() {
             
             console.log(`Transfer agent requested at ${new Date().toISOString()}, switching to ${currentDebater}`);
             
-            try {                // Prepare the transfer prompt based on the current debater
-                // The prompt is based on WHO WE WANT TO TRANSFER TO (currentDebater)
-                let transferPrompt = "";
-                if (currentDebater === 'taylor') {
-                    transferPrompt = "I want to debate Taylor Swift now while keepting the same topic and context.";
-                } else if (currentDebater === 'michelle') {
-                    transferPrompt = "I want to debate Michelle Chong now while keeping the same topic and context.";
-                } else if (currentDebater === 'nelson') {
-                    transferPrompt = "I want to debate Nelson Mandela now while keeping the same topic and context.";
-                } else {
-                    // Fallback
-                    transferPrompt = `I want to debate ${currentDebater} now.`;
-                }
-                
-                console.log(`Generated transfer prompt: "${transferPrompt}" for target debater: ${currentDebater}`);
-                
+            try {
+                // Prepare the transfer prompt based on the target agent
+                const transferPrompt = `I want to debate ${targetAgent}. Do not say a single word while transferring`;
+
                 console.log(`Sending transfer prompt for ${currentDebater}: "${transferPrompt}"`);
                 
-                // Method 1: Using sendTextMessage (original method)
-                if (typeof conversation.sendTextMessage === 'function') {
-                    await conversation.sendTextMessage(transferPrompt);
-                    console.log('Transfer requested using sendTextMessage');
-                } 
                 // Method 2: Using sendUserMessage 
-                else if (typeof conversation.sendUserMessage === 'function') {
+                if (typeof conversation.sendUserMessage === 'function') {
                     await conversation.sendUserMessage(transferPrompt);
                     console.log('Transfer requested using sendUserMessage');
                 }
-                // Method 3: Using prompt
-                else if (typeof conversation.prompt === 'function') {
-                    await conversation.prompt(transferPrompt);
-                    console.log('Transfer requested using prompt');
-                }                
-                // Method 4: Using write
-                else if (typeof conversation.write === 'function') {
-                    await conversation.write(transferPrompt);
-                    console.log('Transfer requested using write');
-                }
-                // Method 5: Using ask
-                else if (typeof conversation.ask === 'function') {
-                    await conversation.ask(transferPrompt);
-                    console.log('Transfer requested using ask');
-                }
-                // Method 6: If none of the above works, log the available methods and information
-                else {
-                    console.error('No suitable message sending method found on conversation object');
-                    console.log('Available methods:', 
-                        Object.getOwnPropertyNames(Object.getPrototypeOf(conversation)));
-                    console.log('Conversation object keys:', Object.keys(conversation));
-                    console.log('Conversation object:', conversation);
-                    throw new Error('No suitable method to send message to AI');
-                }
+                
             } catch (innerError) {
                 console.error('Error sending transfer message:', innerError);
                 throw innerError;
             }
             
-            // Re-enable the transfer button after a short delay
+            // Re-enable all transfer buttons after a short delay
             setTimeout(() => {
-                if (transferButton) {
-                    transferButton.disabled = false;
-                    transferButton.classList.remove('loading');
-                    transferButton.innerHTML = `
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                            <polyline points="9 10 4 15 9 20"></polyline>
-                        </svg>
-                        Transfer Agent
-                    `;
-                }
+                allButtons.forEach(btn => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.classList.remove('loading');
+                        
+                        // Reset button text based on the agent
+                        if (btn.id === 'transferNelson') {
+                            btn.innerHTML = `
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                    <polyline points="9 10 4 15 9 20"></polyline>
+                                </svg>
+                                Nelson
+                            `;
+                        } else if (btn.id === 'transferBarbarella') {
+                            btn.innerHTML = `
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                    <polyline points="9 10 4 15 9 20"></polyline>
+                                </svg>
+                                Barbarella
+                            `;
+                        } else if (btn.id === 'transferTaylor') {
+                            btn.innerHTML = `
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                    <polyline points="9 10 4 15 9 20"></polyline>
+                                </svg>
+                                Taylor
+                            `;
+                        }
+                    }
+                });
             }, 3000);
         } catch (error) {
             console.error('Error transferring agent:', error);
             alert('Failed to transfer agent. Please try again.');
             
-            // Re-enable the transfer button on error
-            const transferButton = document.getElementById('transferAgent');
-            if (transferButton) {
-                transferButton.disabled = false;
-                transferButton.classList.remove('loading');
-                transferButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                        <polyline points="9 10 4 15 9 20"></polyline>
-                    </svg>
-                    Transfer Agent
-                `;
-            }
+            // Re-enable all transfer buttons on error
+            const allButtons = [
+                document.getElementById('transferNelson'),
+                document.getElementById('transferBarbarella'),
+                document.getElementById('transferTaylor')
+            ];
+            
+            allButtons.forEach(btn => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('loading');
+                    
+                    // Reset button text based on the agent
+                    if (btn.id === 'transferNelson') {
+                        btn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                <polyline points="9 10 4 15 9 20"></polyline>
+                            </svg>
+                            Nelson
+                        `;
+                    } else if (btn.id === 'transferBarbarella') {
+                        btn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                <polyline points="9 10 4 15 9 20"></polyline>
+                            </svg>
+                            Barbarella
+                        `;
+                    } else if (btn.id === 'transferTaylor') {
+                        btn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
+                                <polyline points="9 10 4 15 9 20"></polyline>
+                            </svg>
+                            Taylor
+                        `;
+                    }
+                }
+            });
         }
     }
+}
+
+// Specific transfer functions for each agent
+async function transferToNelson() {
+    await transferToAgent('nelson');
+}
+
+async function transferToBarbarella() {
+    await transferToAgent('barbarella');
+}
+
+async function transferToTaylor() {
+    await transferToAgent('taylor');
 }
 
 // Function to request a summary of the conversation
@@ -701,7 +783,9 @@ async function summarizeConversation() {
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
-document.getElementById('transferAgent').addEventListener('click', transferAgent);
+document.getElementById('transferNelson').addEventListener('click', transferToNelson);
+document.getElementById('transferBarbarella').addEventListener('click', transferToBarbarella);
+document.getElementById('transferTaylor').addEventListener('click', transferToTaylor);
 
 
 // Initialize avatar when page loads
@@ -723,12 +807,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ensure initial button states
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
+      // Initialize transfer buttons state
+    const transferButtons = [
+        document.getElementById('transferNelson'),
+        document.getElementById('transferBarbarella'),
+        document.getElementById('transferTaylor')
+    ];
     
-    // Initialize transfer button state
-    const transferButton = document.getElementById('transferAgent');
-    if (transferButton) {
-        transferButton.style.display = 'none';
-    }
+    transferButtons.forEach(button => {
+        if (button) {
+            button.style.display = 'none';
+        }
+    });
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';

@@ -13,7 +13,7 @@ app.use("/static", express.static(path.join(__dirname, "../dist")));
 app.get("/api/signed-url", async (req, res) => {
   try {
     // Always use the default agent ID regardless of opponent selection
-    const agentId = process.env.AGENT_ID; // Default agent ID
+    const agentId = process.env.NELSON_AGENT_ID; // Default agent ID
     
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${agentId}`,
@@ -39,7 +39,7 @@ app.get("/api/signed-url", async (req, res) => {
 
 //API route for getting Agent ID, used for public agents
 app.get("/api/getAgentId", (req, res) => {
-  const agentId = process.env.AGENT_ID;
+  const agentId = process.env.NELSON_AGENT_ID;
   res.json({
     agentId: `${agentId}`,
   });

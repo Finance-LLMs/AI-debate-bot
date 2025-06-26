@@ -1067,6 +1067,16 @@ body::before {
     background: linear-gradient(135deg, #10b981, #047857) !important;
     margin-top: 0.75rem;
     position: relative;
+    min-width: 100px; /* Ensure buttons have minimum width */
+}
+
+/* Styling for the container that holds the three transfer buttons */
+.transfer-buttons-container {
+    display: flex;
+    gap: 10px;
+    margin-top: 0.75rem;
+    justify-content: space-between;
+    width: 100%;
 }
 
 .transfer-button:hover:not(:disabled) {
