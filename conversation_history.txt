@@ -1,0 +1,8 @@
+--- DEBATE CONVERSATION HISTORY ---
+
+This file will store conversation history for agent transfers.
+
+
+--- nelson CONVERSATION AT 2025-06-29T11:55:20.028Z ---
+
+nelson: This is a fallback conversation history. The conversation with nelson could not be retrieved from the API.

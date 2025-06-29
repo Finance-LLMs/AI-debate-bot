@@ -1061,3 +1061,18 @@ body::before {
     border-radius: 12px;
     overflow: hidden;
 }
+
+/* Transfer button styles */
+.transfer-button {
+    background-color: #8B5CF6 !important; /* Purple */
+    border-color: #7C3AED !important;
+}
+
+.transfer-button:hover {
+    background-color: #7C3AED !important;
+}
+
+.transfer-button.loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
