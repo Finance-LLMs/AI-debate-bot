@@ -354,13 +354,10 @@ function updateAgentIndicator() {
 
 // Move to next agent in sequence
 function moveToNextAgent() {
-    if (currentAgentIndex < agentSequence.length - 1) {
-        currentAgentIndex++;
-        initializeAvatar();
-        updateAgentIndicator();
-        return true;
-    }
-    return false; // End of sequence
+    currentAgentIndex = (currentAgentIndex + 1) % agentSequence.length;
+    initializeAvatar();
+    updateAgentIndicator();
+    return true; // Always return true as we cycle through agents
 }
 
 // Reset agent sequence
@@ -373,6 +370,7 @@ function resetAgentSequence() {
     hideUserPrompt();
     initializeAvatar();
     updateAgentIndicator();
+    updateTransferButtonText(); // Update button text for first agent
     resetTurnTracking();
 }
 
@@ -459,7 +457,7 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 transferButton.disabled = false;
                 transferButton.style.display = 'flex';
-                transferButton.textContent = `Transfer to ${getNextAgentName()}`;
+                updateTransferButtonText(); // Use the new function
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
                 
@@ -552,15 +550,9 @@ async function startConversation() {
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
                 
-                // Show prompt for human turn after agent finishes
-                if (currentAgentIndex < agentSequence.length) {
-                    showUserPrompt();
-                } else {
-                    // End of debate sequence
-                    console.log('Debate sequence complete');
-                    alert('Debate complete! All agents have participated.');
-                    showDebateSummary();
-                }
+                // Continue the debate sequence - always show prompt for human turn after agent finishes
+                // The sequence will cycle through all agents: Nelson -> Taylor -> Michelle -> Nelson...
+                showUserPrompt();
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -736,8 +728,7 @@ async function transferAgent() {
         // Update UI to reflect new agent
         initializeAvatar();
         updateAgentIndicator();
-        
-        transferButton.textContent = `Transfer to ${getNextAgentName()}`;
+        updateTransferButtonText();
         
     } catch (error) {
         console.error('Error transferring agent:', error);
@@ -745,6 +736,7 @@ async function transferAgent() {
     } finally {
         transferButton.disabled = false;
         transferButton.classList.remove('loading');
+        updateTransferButtonText(); // Reset button text properly
     }
 }
 
@@ -833,6 +825,22 @@ function getNextAgentName() {
     const nextIndex = (currentAgentIndex + 1) % 3;
     const agentNames = ['Nelson Mandela', 'Taylor Swift', 'Michelle Chong'];
     return agentNames[nextIndex];
+}
+
+// Update transfer button text based on current agent sequence
+function updateTransferButtonText() {
+    const transferButton = document.getElementById('transferButton');
+    if (transferButton) {
+        const nextAgentName = getNextAgentName();
+        transferButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2-2z"/>
+                <path d="M8 21v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
+                <polyline points="9,9 12,12 15,9"/>
+            </svg>
+            Transfer to ${nextAgentName}
+        `;
+    }
 }
 
 // Debug function to check conversation state
@@ -1022,15 +1030,9 @@ async function completeHumanTurn() {
     await signalHumanTurn();
     hideUserPrompt();
     
-    // Move to next agent after human turn
-    if (humanTurnCount <= 2) { // We have max 2 human turns
-        currentAgentIndex++;
-        if (currentAgentIndex < agentSequence.length) {
-            initializeAvatar();
-            updateAgentIndicator();
-            console.log(`Next agent: ${agentSequence[currentAgentIndex]}`);
-        }
-    }
+    // The agent transfer happens via the Transfer button, not automatically
+    // This function just completes the human's turn, allowing them to use the Transfer button
+    console.log('Human turn completed, ready for transfer to next agent');
 }
 
 // Show summary of entire debate
