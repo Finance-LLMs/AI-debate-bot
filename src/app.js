@@ -4,11 +4,12 @@ import { Conversation } from '@elevenlabs/client';
 let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
-let currentAgentIndex = 0;
-let agentSequence = ['nelson', 'michelle', 'taylor']; // Updated sequence for turn-based
+let currentAgentIndex = 0; // 0: Nelson, 1: Taylor, 2: Michelle
+let agentSequence = ['nelson', 'taylor', 'michelle']; // Agent rotation sequence
 let conversationChain = []; // Store conversation IDs for the chain
 let humanTurnCount = 0;
 let waitingForHuman = false;
+let currentConversationId = null; // Track current conversation ID
 
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
@@ -221,10 +222,10 @@ async function requestMicrophonePermission() {
     }
 }
 
-async function getSignedUrl() {
+async function getSignedUrl(agent) {
     try {
-        // Always start with Nelson for turn-based system
-        const currentAgent = 'nelson';
+        // Use provided agent or current agent in sequence
+        const currentAgent = agent || agentSequence[currentAgentIndex];
         const url = `/api/signed-url?opponent=${currentAgent}`;
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to get signed URL');
@@ -324,46 +325,25 @@ function updateAgentIndicator() {
     
     const agentNames = {
         'nelson': 'Nelson Mandela',
-        'michelle': 'Michelle Chong',
-        'taylor': 'Taylor Swift'
+        'taylor': 'Taylor Swift',
+        'michelle': 'Michelle Chong'
     };
     
     let indicatorHTML = '<div class="agent-sequence">';
-    indicatorHTML += '<h3>Debate Sequence</h3>';
-    indicatorHTML += '<div class="sequence-description">Nelson → You → Michelle → You → Taylor</div>';
+    indicatorHTML += '<h3>Agent Transfer Sequence</h3>';
+    indicatorHTML += '<div class="sequence-description">Nelson → Taylor → Michelle → Nelson...</div>';
     indicatorHTML += '<div class="agents-list">';
     
-    // Create turn-based display
-    const turns = [
-        { type: 'agent', agent: 'nelson', name: 'Nelson Mandela' },
-        { type: 'human', name: 'Your Response' },
-        { type: 'agent', agent: 'michelle', name: 'Michelle Chong' },
-        { type: 'human', name: 'Your Response' },
-        { type: 'agent', agent: 'taylor', name: 'Taylor Swift' }
-    ];
-    
-    turns.forEach((turn, index) => {
-        let isActive = false;
-        let isCompleted = false;
-        
-        if (turn.type === 'agent') {
-            const agentIndex = agentSequence.indexOf(turn.agent);
-            isActive = agentIndex === currentAgentIndex;
-            isCompleted = agentIndex < currentAgentIndex;
-        } else { // human turn
-            const humanTurnIndex = Math.floor(index / 2); // 0 for first human turn, 1 for second
-            isActive = waitingForHuman && humanTurnIndex === humanTurnCount;
-            isCompleted = humanTurnIndex < humanTurnCount;
-        }
-        
-        const statusClass = isActive ? 'active' : (isCompleted ? 'completed' : 'pending');
+    // Create agent rotation display
+    agentSequence.forEach((agent, index) => {
+        const isActive = index === currentAgentIndex;
+        const status = isActive ? 'active' : (index < currentAgentIndex ? 'completed' : 'pending');
         
         indicatorHTML += `
-            <div class="turn-item ${statusClass} ${turn.type}">
-                <div class="turn-number">${index + 1}</div>
-                <div class="turn-name">${turn.name}</div>
-                ${isActive ? '<div class="turn-status">Active</div>' : ''}
-                ${isCompleted ? '<div class="turn-status">Completed</div>' : ''}
+            <div class="agent-item ${status}">
+                <div class="agent-number">${index + 1}</div>
+                <div class="agent-name">${agentNames[agent]}</div>
+                <div class="agent-status">${isActive ? 'Current' : (index < currentAgentIndex ? 'Done' : 'Next')}</div>
             </div>
         `;
     });
@@ -389,6 +369,7 @@ function resetAgentSequence() {
     conversationChain = [];
     humanTurnCount = 0;
     waitingForHuman = false;
+    currentConversationId = null;
     hideUserPrompt();
     initializeAvatar();
     updateAgentIndicator();
@@ -399,13 +380,20 @@ function resetAgentSequence() {
 // Function to disable/enable form controls
 function setFormControlsState(disabled) {
     const topicSelect = document.getElementById('topic');
+    const transferButton = document.getElementById('transferButton');
     
     topicSelect.disabled = disabled;
+    
+    // Don't disable transfer button when form is disabled - it should be controlled separately
+    if (transferButton && !disabled) {
+        transferButton.disabled = false;
+    }
 }
 
 async function startConversation() {
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
+    const transferButton = document.getElementById('transferButton');
     const summaryButton = document.getElementById('summaryButton');
     
     try {
@@ -424,6 +412,26 @@ async function startConversation() {
         
         // Get signed URL for current agent
         const signedUrl = await getSignedUrl();
+        console.log('Signed URL received:', signedUrl);
+        
+        // Try to extract conversation ID from signed URL
+        try {
+            const url = new URL(signedUrl);
+            const urlParams = new URLSearchParams(url.search);
+            const pathConversationId = url.pathname.match(/conversations?\/([a-f0-9\-]+)/i);
+            
+            let extractedId = urlParams.get('conversation_id') || 
+                            urlParams.get('conversationId') ||
+                            urlParams.get('id') ||
+                            (pathConversationId && pathConversationId[1]);
+            
+            if (extractedId) {
+                currentConversationId = extractedId;
+                console.log('Pre-extracted conversation ID from signed URL:', currentConversationId);
+            }
+        } catch (error) {
+            console.log('Could not extract conversation ID from signed URL:', error);
+        }
         //const agentId = await getAgentId(); // You can switch to agentID for public agents
         
         // Set user stance to "for" and AI stance to "against" by default
@@ -449,16 +457,78 @@ async function startConversation() {
                 startButton.style.display = 'none';
                 endButton.disabled = false;
                 endButton.style.display = 'flex';
+                transferButton.disabled = false;
+                transferButton.style.display = 'flex';
+                transferButton.textContent = `Transfer to ${getNextAgentName()}`;
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
                 
-                // Store conversation ID for the chain
-                if (conversation && conversation.conversationId) {
-                    conversationChain.push({
-                        agent: agentSequence[currentAgentIndex],
-                        conversationId: conversation.conversationId
-                    });
+                // Show debug button for troubleshooting
+                const debugButton = document.getElementById('debugButton');
+                if (debugButton) {
+                    debugButton.style.display = 'flex';
                 }
+                
+                // Store conversation ID for the chain - try multiple ways to get it
+                setTimeout(() => {
+                    let conversationId = null;
+                    if (conversation) {
+                        // Try different properties where the ID might be stored
+                        conversationId = conversation.conversationId || 
+                                       conversation.id || 
+                                       conversation._conversationId ||
+                                       conversation.conversation_id ||
+                                       (conversation.connection && conversation.connection.conversationId) ||
+                                       (conversation.connection && conversation.connection.id) ||
+                                       (conversation.options && conversation.options.conversationId) ||
+                                       (conversation.options && conversation.options.agentId);
+                        
+                        // Try to extract from WebSocket URL if available
+                        if (!conversationId && conversation.connection && conversation.connection.url) {
+                            const url = conversation.connection.url;
+                            console.log('WebSocket URL:', url);
+                            
+                            // Look for conversation ID in URL parameters or path
+                            const urlParams = new URLSearchParams(url.split('?')[1] || '');
+                            conversationId = urlParams.get('conversation_id') || 
+                                           urlParams.get('conversationId') ||
+                                           urlParams.get('id');
+                            
+                            // If still not found, try to extract from URL path
+                            if (!conversationId) {
+                                const pathMatch = url.match(/conversations?\/([a-f0-9\-]+)/i);
+                                if (pathMatch) {
+                                    conversationId = pathMatch[1];
+                                    console.log('Extracted conversation ID from URL path:', conversationId);
+                                }
+                            }
+                        }
+                        
+                        // Try to get it from any UUID-like string in the connection
+                        if (!conversationId && conversation.connection) {
+                            const connStr = JSON.stringify(conversation.connection);
+                            const uuidMatch = connStr.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+                            if (uuidMatch) {
+                                conversationId = uuidMatch[0];
+                                console.log('Extracted UUID from connection:', conversationId);
+                            }
+                        }
+                    }
+                    
+                    if (conversationId) {
+                        currentConversationId = conversationId;
+                        console.log('Captured conversation ID:', currentConversationId);
+                        conversationChain.push({
+                            agent: agentSequence[currentAgentIndex],
+                            conversationId: conversationId
+                        });
+                    } else {
+                        console.warn('Could not capture conversation ID immediately - will try message handlers');
+                        
+                        // Log all properties for debugging
+                        console.log('Full conversation object for debugging:', conversation);
+                    }
+                }, 1000); // Give it a moment to initialize
             },            
             onDisconnect: () => {
                 console.log('Disconnected');
@@ -468,8 +538,17 @@ async function startConversation() {
                 startButton.style.display = 'flex';
                 endButton.disabled = true;
                 endButton.style.display = 'none';
+                transferButton.disabled = true;
+                transferButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                
+                // Hide debug button
+                const debugButton = document.getElementById('debugButton');
+                if (debugButton) {
+                    debugButton.style.display = 'none';
+                }
+                
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
                 
@@ -490,6 +569,8 @@ async function startConversation() {
                 startButton.style.display = 'flex';
                 endButton.disabled = true;
                 endButton.style.display = 'none';
+                transferButton.disabled = true;
+                transferButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
                 alert('An error occurred during the conversation.');
@@ -497,6 +578,33 @@ async function startConversation() {
             onModeChange: (mode) => {
                 console.log('Mode changed:', mode); // Debug log to see exact mode object
                 updateSpeakingStatus(mode);
+            },
+            onMessage: (message) => {
+                console.log('Received message:', message);
+                
+                // Try to capture conversation ID from message events
+                if (message && !currentConversationId) {
+                    const possibleId = message.conversation_id || 
+                                     message.conversationId || 
+                                     message.id ||
+                                     (message.metadata && message.metadata.conversation_id) ||
+                                     (message.metadata && message.metadata.conversationId) ||
+                                     (message.data && message.data.conversation_id) ||
+                                     (message.data && message.data.conversationId);
+                    
+                    if (possibleId) {
+                        currentConversationId = possibleId;
+                        console.log('Captured conversation ID from message:', currentConversationId);
+                    } else {
+                        // Try to find any UUID in the message
+                        const messageStr = JSON.stringify(message);
+                        const uuidMatch = messageStr.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+                        if (uuidMatch) {
+                            currentConversationId = uuidMatch[0];
+                            console.log('Extracted conversation ID from message UUID:', currentConversationId);
+                        }
+                    }
+                }
             }
         });
     } catch (error) {
@@ -513,6 +621,275 @@ async function endConversation() {
         conversation = null;
     }
 }
+
+// Transfer to next agent with conversation context
+async function transferAgent() {
+    const transferButton = document.getElementById('transferButton');
+    
+    try {
+        transferButton.disabled = true;
+        transferButton.classList.add('loading');
+        transferButton.textContent = 'Transferring...';
+        
+        // Debug: Check conversation object and ID
+        console.log('Current conversation object:', conversation);
+        console.log('Current conversation ID:', currentConversationId);
+        
+        // Try to get conversation ID from the conversation object if currentConversationId is not set
+        let conversationIdToUse = currentConversationId;
+        if (!conversationIdToUse && conversation) {
+            // Try different properties where the ID might be stored
+            conversationIdToUse = conversation.conversationId || 
+                                 conversation.id || 
+                                 conversation._conversationId ||
+                                 conversation.conversation_id ||
+                                 (conversation.connection && conversation.connection.conversationId) ||
+                                 (conversation.connection && conversation.connection.id) ||
+                                 (conversation.options && conversation.options.conversationId);
+            
+            // Try to extract from WebSocket URL if available
+            if (!conversationIdToUse && conversation.connection && conversation.connection.url) {
+                const url = conversation.connection.url;
+                console.log('Trying to extract ID from WebSocket URL:', url);
+                
+                // Look for conversation ID in URL parameters
+                const urlParams = new URLSearchParams(url.split('?')[1] || '');
+                conversationIdToUse = urlParams.get('conversation_id') || 
+                                     urlParams.get('conversationId') ||
+                                     urlParams.get('id');
+                
+                // If still not found, try to extract from URL path
+                if (!conversationIdToUse) {
+                    const pathMatch = url.match(/conversations?\/([a-f0-9\-]+)/i);
+                    if (pathMatch) {
+                        conversationIdToUse = pathMatch[1];
+                        console.log('Extracted conversation ID from URL path:', conversationIdToUse);
+                    }
+                }
+            }
+            
+            console.log('Found conversation ID from conversation object:', conversationIdToUse);
+        }
+        
+        if (!conversationIdToUse) {
+            // If still no conversation ID, check if there's one in the conversation chain
+            if (conversationChain.length > 0) {
+                conversationIdToUse = conversationChain[conversationChain.length - 1].conversationId;
+                console.log('Using conversation ID from chain:', conversationIdToUse);
+            }
+        }
+        
+        // Last resort: try to get the most recent conversation from the backend
+        if (!conversationIdToUse) {
+            console.log('Attempting to get conversation ID from backend...');
+            try {
+                const response = await fetch('/api/recent-conversation');
+                if (response.ok) {
+                    const data = await response.json();
+                    conversationIdToUse = data.conversationId;
+                    console.log('Got conversation ID from backend:', conversationIdToUse);
+                }
+            } catch (error) {
+                console.log('Could not get conversation ID from backend:', error);
+            }
+        }
+        
+        if (!conversationIdToUse) {
+            console.error('No conversation ID available for transfer');
+            alert('No active conversation to transfer. Please start a conversation first and wait a moment before transferring.');
+            return;
+        }
+        
+        console.log(`Transferring conversation ID: ${conversationIdToUse}`);
+        
+        // End current conversation
+        if (conversation) {
+            await conversation.endSession();
+            conversation = null;
+        }
+        
+        // Call backend to transfer agent
+        const response = await fetch('/transfer-agent', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                conversationId: conversationIdToUse
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to transfer agent');
+        }
+        
+        const transferData = await response.json();
+        console.log('Transfer response:', transferData);
+        
+        // Update current agent index
+        currentAgentIndex = (currentAgentIndex + 1) % 3;
+        
+        // Start new conversation with next agent
+        await startNewAgentConversation(transferData);
+        
+        // Update UI to reflect new agent
+        initializeAvatar();
+        updateAgentIndicator();
+        
+        transferButton.textContent = `Transfer to ${getNextAgentName()}`;
+        
+    } catch (error) {
+        console.error('Error transferring agent:', error);
+        alert('Failed to transfer agent: ' + error.message);
+    } finally {
+        transferButton.disabled = false;
+        transferButton.classList.remove('loading');
+    }
+}
+
+// Start conversation with new agent using context
+async function startNewAgentConversation(transferData) {
+    try {
+        const hasPermission = await requestMicrophonePermission();
+        if (!hasPermission) {
+            throw new Error('Microphone permission denied');
+        }
+        
+        // Get the actual topic text
+        const topicSelect = document.getElementById('topic');
+        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
+        
+        conversation = await Conversation.startSession({
+            signedUrl: transferData.signedUrl,
+            dynamicVariables: {
+                topic: topicText,
+                user_stance: "for",
+                ai_stance: "against",
+                conversation_context: transferData.conversationContext || ""
+            },
+            onConnect: () => {
+                console.log(`Connected to ${transferData.nextAgent}`);
+                updateStatus(true);
+                
+                // Capture conversation ID for the new agent
+                setTimeout(() => {
+                    let conversationId = null;
+                    if (conversation) {
+                        conversationId = conversation.conversationId || 
+                                       conversation.id || 
+                                       conversation._conversationId ||
+                                       conversation.conversation_id;
+                    }
+                    
+                    if (conversationId) {
+                        currentConversationId = conversationId;
+                        console.log('Captured new conversation ID:', currentConversationId);
+                    }
+                }, 1000);
+            },
+            onDisconnect: () => {
+                console.log('Disconnected');
+                updateStatus(false);
+            },
+            onError: (error) => {
+                console.error('Conversation error:', error);
+                alert('An error occurred during the conversation.');
+            },
+            onModeChange: (mode) => {
+                updateSpeakingStatus(mode);
+            },
+            onMessage: (message) => {
+                console.log('Received message in new conversation:', message);
+                
+                // Try to capture conversation ID from message events
+                if (message && !currentConversationId) {
+                    const possibleId = message.conversation_id || 
+                                     message.conversationId || 
+                                     message.id ||
+                                     (message.metadata && message.metadata.conversation_id);
+                    
+                    if (possibleId) {
+                        currentConversationId = possibleId;
+                        console.log('Captured conversation ID from new message:', currentConversationId);
+                    }
+                }
+            }
+        });
+        
+        // Store new conversation ID (fallback)
+        if (conversation && conversation.conversationId) {
+            currentConversationId = conversation.conversationId;
+        }
+        
+    } catch (error) {
+        console.error('Error starting new agent conversation:', error);
+        throw error;
+    }
+}
+
+// Get the name of the next agent in sequence
+function getNextAgentName() {
+    const nextIndex = (currentAgentIndex + 1) % 3;
+    const agentNames = ['Nelson Mandela', 'Taylor Swift', 'Michelle Chong'];
+    return agentNames[nextIndex];
+}
+
+// Debug function to check conversation state
+function debugConversationState() {
+    console.log('=== Conversation Debug Info ===');
+    console.log('Current conversation object:', conversation);
+    console.log('Current conversation ID:', currentConversationId);
+    console.log('Current agent index:', currentAgentIndex);
+    console.log('Current agent:', agentSequence[currentAgentIndex]);
+    console.log('Conversation chain:', conversationChain);
+    
+    if (conversation) {
+        console.log('Conversation properties:');
+        console.log('- conversationId:', conversation.conversationId);
+        console.log('- id:', conversation.id);
+        console.log('- _conversationId:', conversation._conversationId);
+        console.log('- conversation_id:', conversation.conversation_id);
+        
+        // Check connection object for ID
+        if (conversation.connection) {
+            console.log('Connection object:', conversation.connection);
+            console.log('- connection.conversationId:', conversation.connection.conversationId);
+            console.log('- connection.id:', conversation.connection.id);
+            console.log('- connection.url:', conversation.connection.url);
+        }
+        
+        // Check options object for ID
+        if (conversation.options) {
+            console.log('Options object:', conversation.options);
+            console.log('- options.conversationId:', conversation.options.conversationId);
+            console.log('- options.agentId:', conversation.options.agentId);
+        }
+        
+        // Try to find any property that looks like an ID
+        console.log('All conversation properties:');
+        Object.keys(conversation).forEach(key => {
+            const value = conversation[key];
+            console.log(`- ${key}:`, value);
+            
+            // If it's an object, check its properties too
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                Object.keys(value).forEach(subKey => {
+                    if (subKey.toLowerCase().includes('id') || subKey.toLowerCase().includes('conversation')) {
+                        console.log(`  - ${key}.${subKey}:`, value[subKey]);
+                    }
+                });
+            }
+        });
+        
+        // Check prototype for methods
+        console.log('Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(conversation)));
+    }
+    console.log('===============================');
+}
+
+// Make debug function available globally
+window.debugConversationState = debugConversationState;
 
 // Track if the summary button was clicked to request a summary
 let summarizeRequested = false;
@@ -756,9 +1133,11 @@ function hideUserPrompt() {
 window.signalHumanTurn = signalHumanTurn;
 window.hideUserPrompt = hideUserPrompt;
 window.completeHumanTurn = completeHumanTurn;
+window.transferAgent = transferAgent;
 
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
+document.getElementById('transferButton').addEventListener('click', transferAgent);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
 
 // Initialize avatar when page loads
@@ -769,10 +1148,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const topicSelect = document.getElementById('topic');
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
+    const transferButton = document.getElementById('transferButton');
     const summaryButton = document.getElementById('summaryButton');
     
     // Ensure initial button states
     endButton.style.display = 'none';
+    transferButton.style.display = 'none';
     summaryButton.style.display = 'none';
     
     function checkFormValidity() {

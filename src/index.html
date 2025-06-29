@@ -43,22 +43,29 @@
                     </div>
                     
                     <div class="agent-sequence-info">
-                        <h4>Turn-Based Debate Sequence</h4>
-                        <p>The debate will proceed through these turns in order:</p>
+                        <h4>Agent Transfer Sequence</h4>
+                        <p>Use the Transfer Agent button to rotate through:</p>
                         <div class="sequence-list">
-                            <span class="sequence-item">1. Nelson Mandela speaks</span>
-                            <span class="sequence-item">2. You respond</span>
-                            <span class="sequence-item">3. Michelle Chong speaks</span>
-                            <span class="sequence-item">4. You respond</span>
-                            <span class="sequence-item">5. Taylor Swift speaks</span>
+                            <span class="sequence-item">1. Nelson Mandela (starts first)</span>
+                            <span class="sequence-item">2. Taylor Swift</span>
+                            <span class="sequence-item">3. Michelle Chong</span>
                         </div>
+                        <p class="sequence-note">Context from previous conversations will be preserved when transferring.</p>
                     </div>
                 </div>                <div class="recording-section">                    <button id="startButton" class="record-button" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="m12 8-9.04 4.9a2.78 2.78 0 0 0 0 4.9L12 24l9.04-4.9a2.78 2.78 0 0 0 0-4.9L12 8Z"/>
                         </svg>
                         Start Debate
-                    </button>                    <button id="endButton" class="record-button stop-button" disabled style="display: none;">
+                    </button>                    <button id="transferButton" class="record-button transfer-button" disabled style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2-2z"/>
+                            <path d="M8 21v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
+                            <polyline points="9,9 12,12 15,9"/>
+                        </svg>
+                        Transfer Agent
+                    </button>
+                    <button id="endButton" class="record-button stop-button" disabled style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="10"/>
                             <path d="m9 9 6 6"/>
@@ -76,6 +83,13 @@
                             <line x1="3" y1="18" x2="3.01" y2="18"></line>
                         </svg>
                         Summarize Debate
+                    </button>
+                    <button id="debugButton" class="record-button debug-button" onclick="debugConversationState()" style="display: none; background: #6b7280 !important; margin-top: 0.5rem;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/>
+                        </svg>
+                        Debug Info
                     </button>
                 </div>
             </div>

@@ -1405,3 +1405,45 @@ body::before {
     text-transform: uppercase;
     letter-spacing: 0.025em;
 }
+
+/* Transfer Agent Button */
+.transfer-button {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    margin-top: 0.5rem;
+    position: relative;
+}
+
+.transfer-button:hover:not(:disabled) {
+    background: linear-gradient(135deg, #059669, #047857) !important;
+}
+
+.transfer-button.loading {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.transfer-button.loading::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    top: 50%;
+    right: 10px;
+    margin-top: -8px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    animation: transfer-loading 0.8s linear infinite;
+}
+
+@keyframes transfer-loading {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.sequence-note {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-style: italic;
+    margin-top: 0.5rem;
+}
