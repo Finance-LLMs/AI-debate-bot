@@ -728,6 +728,13 @@ async function transferAgent() {
         // Update UI to reflect new agent
         initializeAvatar();
         updateAgentIndicator();
+        
+        // Ensure transfer button is visible and updated after successful transfer
+        const transferButtonAfterTransfer = document.getElementById('transferButton');
+        if (transferButtonAfterTransfer) {
+            transferButtonAfterTransfer.style.display = 'flex';
+            transferButtonAfterTransfer.disabled = false;
+        }
         updateTransferButtonText();
         
     } catch (error) {
@@ -764,6 +771,27 @@ async function startNewAgentConversation(transferData) {
                 console.log(`Connected to ${transferData.nextAgent}`);
                 updateStatus(true);
                 
+                // Ensure transfer button is visible and properly updated
+                const transferButton = document.getElementById('transferButton');
+                const endButton = document.getElementById('endButton');
+                const summaryButton = document.getElementById('summaryButton');
+                
+                if (transferButton) {
+                    transferButton.disabled = false;
+                    transferButton.style.display = 'flex';
+                    updateTransferButtonText(); // Update button text for next agent
+                }
+                
+                if (endButton) {
+                    endButton.disabled = false;
+                    endButton.style.display = 'flex';
+                }
+                
+                if (summaryButton) {
+                    summaryButton.disabled = false;
+                    summaryButton.style.display = 'flex';
+                }
+                
                 // Capture conversation ID for the new agent
                 setTimeout(() => {
                     let conversationId = null;
@@ -781,8 +809,12 @@ async function startNewAgentConversation(transferData) {
                 }, 1000);
             },
             onDisconnect: () => {
-                console.log('Disconnected');
+                console.log(`Disconnected from ${transferData.nextAgent}`);
                 updateStatus(false);
+                
+                // Don't hide the transfer button on disconnect from new agent
+                // The button should remain visible for further transfers
+                console.log('Maintaining transfer button visibility after agent disconnect');
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
@@ -824,7 +856,11 @@ async function startNewAgentConversation(transferData) {
 function getNextAgentName() {
     const nextIndex = (currentAgentIndex + 1) % 3;
     const agentNames = ['Nelson Mandela', 'Taylor Swift', 'Michelle Chong'];
-    return agentNames[nextIndex];
+    const nextAgent = agentNames[nextIndex];
+    
+    console.log(`getNextAgentName: currentAgentIndex = ${currentAgentIndex}, nextIndex = ${nextIndex}, nextAgent = ${nextAgent}`);
+    
+    return nextAgent;
 }
 
 // Update transfer button text based on current agent sequence
@@ -832,6 +868,8 @@ function updateTransferButtonText() {
     const transferButton = document.getElementById('transferButton');
     if (transferButton) {
         const nextAgentName = getNextAgentName();
+        console.log(`Updating transfer button: current agent index = ${currentAgentIndex}, next agent = ${nextAgentName}`);
+        
         transferButton.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2-2z"/>
@@ -840,6 +878,10 @@ function updateTransferButtonText() {
             </svg>
             Transfer to ${nextAgentName}
         `;
+        
+        console.log(`Transfer button updated to: Transfer to ${nextAgentName}`);
+    } else {
+        console.log('Transfer button not found in DOM');
     }
 }
 
