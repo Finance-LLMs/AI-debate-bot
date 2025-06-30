@@ -12,8 +12,13 @@ app.use("/static", express.static(path.join(__dirname, "../dist")));
 
 app.get("/api/signed-url", async (req, res) => {
   try {
-    // Always use the default agent ID regardless of opponent selection
-    const agentId = process.env.NELSON_AGENT_ID; // Default agent ID
+    // Get agentId from query parameter or use default
+    let agentId = process.env.NELSON_AGENT_ID; // Default to Nelson
+    
+    // Check if agentId is provided in query
+    if (req.query.agentId) {
+      agentId = req.query.agentId;
+    }
     
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${agentId}`,
@@ -37,9 +42,23 @@ app.get("/api/signed-url", async (req, res) => {
   }
 });
 
-//API route for getting Agent ID, used for public agents
+//API route for getting Agent ID based on debater name
 app.get("/api/getAgentId", (req, res) => {
-  const agentId = process.env.NELSON_AGENT_ID;
+  let agentId = process.env.NELSON_AGENT_ID; // Default to Nelson
+  
+  // Get specific agent ID based on agent query parameter
+  if (req.query.agent) {
+    const agent = req.query.agent.toLowerCase();
+    
+    if (agent === 'nelson') {
+      agentId = process.env.NELSON_AGENT_ID;
+    } else if (agent === 'taylor') {
+      agentId = process.env.TAYLOR_AGENT_ID;
+    } else if (agent === 'barbarella') {
+      agentId = process.env.BARBARELLA_AGENT_ID;
+    }
+  }
+  
   res.json({
     agentId: `${agentId}`,
   });

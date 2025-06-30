@@ -12,6 +12,21 @@ let currentDebaterIndex = 0; // Start with Nelson Mandela
 let currentDebater = debaterRotation[currentDebaterIndex];
 let isAgentSpeaking = false;
 
+// Map debater to display name and .env agent ID key
+const debaterDisplay = {
+    nelson: 'Nelson Mandela',
+    taylor: 'Taylor Swift',
+    barbarella: 'Barbarella'
+};
+const debaterAgentEnv = {
+    nelson: 'NELSON_AGENT_ID',
+    taylor: 'TAYLOR_AGENT_ID',
+    barbarella: 'BARBARELLA_AGENT_ID'
+};
+
+// Store the current agentId for the session
+let currentAgentId = null;
+
 // Function to get the next debater in rotation
 function getNextDebater() {
     if (currentDebaterIndex >= debaterRotation.length - 1) {
@@ -25,69 +40,124 @@ function updateTransferButton() {
     const transferButton = document.getElementById('transferButton');
     const transferButtonText = document.getElementById('transferButtonText');
     const nextDebater = getNextDebater();
-
     if (nextDebater) {
-        const displayName = nextDebater.charAt(0).toUpperCase() + nextDebater.slice(1);
-        transferButtonText.textContent = `Switch to ${displayName}`;
+        transferButtonText.textContent = `Switch to ${debaterDisplay[nextDebater]}`;
         transferButton.style.display = '';
         transferButton.disabled = isAgentSpeaking;
     } else {
-        transferButton.style.display = 'none'; // Hide button after last debater
+        transferButton.style.display = 'none';
     }
 }
 
 // Function to transfer to the next debater
 async function transferToNextDebater() {
-    if (isAgentSpeaking) {
-        console.log('Cannot transfer while agent is speaking');
-        return;
-    }
-
+    if (isAgentSpeaking) return;
     const nextDebater = getNextDebater();
-    if (!nextDebater) {
-        console.log('No more debaters in rotation');
-        return;
+    if (!nextDebater) return;
+    // End current conversation if active
+    if (conversation) {
+        await conversation.endSession();
+        conversation = null;
     }
+    // Update debater index and agent
+    currentDebaterIndex++;
+    currentDebater = debaterRotation[currentDebaterIndex];
+    currentAgentId = await getAgentIdFor(currentDebater);
+    // Update avatar
+    const avatarWrapper = document.getElementById('animatedAvatar');
+    if (avatarWrapper) {
+        avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
+    }
+    // Start new conversation with new agent
+    await startConversationWithAgent(currentAgentId);
+    updateTransferButton();
+}
 
+async function getAgentIdFor(debater) {
+    // Backend should return the agentId for the debater
+    const response = await fetch(`/api/getAgentId?agent=${debater}`);
+    const { agentId } = await response.json();
+    return agentId;
+}
+
+async function startConversationWithAgent(agentId) {
+    // Similar to startConversation, but uses the provided agentId
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+    const summaryButton = document.getElementById('summaryButton');
     try {
-        const transferButton = document.getElementById('transferButton');
-        transferButton.disabled = true;
-        transferButton.classList.add('loading');
-        document.getElementById('transferButtonText').textContent = 'Switching...';
-
-        // Update the debater index and current debater
-        currentDebaterIndex++;
-        currentDebater = debaterRotation[currentDebaterIndex];
-        
-        // Update the avatar
-        const avatarWrapper = document.getElementById('animatedAvatar');
-        if (avatarWrapper) {
-            avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
+        startButton.disabled = true;
+        const hasPermission = await requestMicrophonePermission();
+        if (!hasPermission) {
+            alert('Microphone permission is required for the conversation.');
+            startButton.disabled = false;
+            return;
         }
-
-        // Send transfer message to conversation
-        try {
-            const transferPrompt = `I want to debate ${currentDebater}. Do not say a single word while transferring`;
-            if (conversation && typeof conversation.sendUserMessage === 'function') {
-                await conversation.sendUserMessage(transferPrompt);
+        // Get signed URL for this agent
+        const signedUrl = await getSignedUrlForAgent(agentId);
+        const userStance = "for";
+        const aiStance = "against";
+        const topicSelect = document.getElementById('topic');
+        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
+        conversation = await Conversation.startSession({
+            signedUrl: signedUrl,
+            dynamicVariables: {
+                topic: topicText,
+                user_stance: userStance,
+                ai_stance: aiStance,
+                opponent: currentDebater
+            },
+            onConnect: () => {
+                updateStatus(true);
+                setFormControlsState(true);
+                startButton.style.display = 'none';
+                endButton.disabled = false;
+                endButton.style.display = 'flex';
+                summaryButton.disabled = false;
+                summaryButton.style.display = 'flex';
+                updateTransferButton();
+            },
+            onDisconnect: () => {
+                updateStatus(false);
+                setFormControlsState(false);
+                startButton.disabled = false;
+                startButton.style.display = 'flex';
+                endButton.disabled = true;
+                endButton.style.display = 'none';
+                summaryButton.disabled = true;
+                summaryButton.style.display = 'none';
+                updateTransferButton();
+                stopMouthAnimation();
+            },
+            onError: (error) => {
+                setFormControlsState(false);
+                startButton.disabled = false;
+                startButton.style.display = 'flex';
+                endButton.disabled = true;
+                endButton.style.display = 'none';
+                summaryButton.disabled = true;
+                summaryButton.style.display = 'none';
+                updateTransferButton();
+                alert('An error occurred during the conversation.');
+            },
+            onModeChange: (mode) => {
+                updateSpeakingStatus(mode);
             }
-        } catch (error) {
-            console.error('Error sending transfer message:', error);
-        }
-
-        // Update the transfer button for the next debater
-        setTimeout(() => {
-            transferButton.classList.remove('loading');
-            updateTransferButton();
-        }, 2000);
-
+        });
     } catch (error) {
-        console.error('Error transferring to next debater:', error);
-        const transferButton = document.getElementById('transferButton');
-        transferButton.disabled = false;
-        transferButton.classList.remove('loading');
-        updateTransferButton();
+        setFormControlsState(false);
+        startButton.disabled = false;
+        alert('Failed to start conversation. Please try again.');
     }
+}
+
+async function getSignedUrlForAgent(agentId) {
+    // Backend should accept ?agentId=... and return signed url for that agent
+    const url = `/api/signed-url?agentId=${agentId}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to get signed URL');
+    const data = await response.json();
+    return data.signedUrl;
 }
 
 // Update the setAgentSpeaking function to handle button states
@@ -109,16 +179,19 @@ function setAgentSpeaking(speaking) {
                     button.style.display = '';
                 } else {
                     button.disabled = true;
+                    button.style.display = '';
                 }
             } else {
                 if (button.id === 'endButton') {
                     button.style.display = 'none';
                 } else {
                     button.disabled = false;
+                    button.style.display = '';
                 }
             }
         }
     });
+    updateTransferButton();
 }
 
 // Log the initial setup for debugging
@@ -357,12 +430,6 @@ async function getSignedUrl() {
     }
 }
 
-async function getAgentId() {
-    const response = await fetch('/api/getAgentId');
-    const { agentId } = await response.json();
-    return agentId;
-}
-
 function updateStatus(isConnected) {
     const statusElement = document.getElementById('connectionStatus');
     statusElement.textContent = isConnected ? 'Connected' : 'Disconnected';
@@ -372,18 +439,15 @@ function updateStatus(isConnected) {
 function updateSpeakingStatus(mode) {
     const statusElement = document.getElementById('speakingStatus');
     const summaryButton = document.getElementById('summaryButton');
-    
-    // Get references to all transfer buttons
-    const transferButtons = [
-        document.getElementById('transferNelson'),
-        document.getElementById('transferBarbarella'),
-        document.getElementById('transferTaylor')
-    ];
+    const transferButton = document.getElementById('transferButton');
     
     // Update based on the exact mode string we receive
     const isSpeaking = mode.mode === 'speaking';
     statusElement.textContent = isSpeaking ? 'Agent Speaking' : 'Agent Silent';
     statusElement.classList.toggle('speaking', isSpeaking);
+    
+    // Update agent speaking state
+    isAgentSpeaking = isSpeaking;
     
     // Animate avatar based on speaking state
     if (isSpeaking) {
@@ -394,12 +458,10 @@ function updateSpeakingStatus(mode) {
             summaryButton.disabled = true;
         }
         
-        // Disable all transfer buttons while agent is speaking
-        transferButtons.forEach(btn => {
-            if (btn && btn.style.display !== 'none') {
-                btn.disabled = true;
-            }
-        });
+        // Disable transfer button while agent is speaking
+        if (transferButton) {
+            transferButton.disabled = true;
+        }
     } else {
         stopMouthAnimation();
         
@@ -411,12 +473,11 @@ function updateSpeakingStatus(mode) {
             summaryButton.disabled = false;
         }
         
-        // Re-enable all transfer buttons when agent stops speaking (as long as they're visible)
-        transferButtons.forEach(btn => {
-            if (btn && btn.style.display !== 'none') {
-                btn.disabled = false;
-            }
-        });
+        // Re-enable transfer button when agent stops speaking
+        if (transferButton) {
+            transferButton.disabled = false;
+            updateTransferButton(); // Update button text/visibility based on current debater
+        }
         
         // If the agent just finished speaking and we requested a summary,
         // this is likely the end of the summary response
@@ -514,19 +575,14 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
-                  // Enable and show transfer agent buttons
-                const transferButtons = [
-                    document.getElementById('transferNelson'),
-                    document.getElementById('transferBarbarella'),
-                    document.getElementById('transferTaylor')
-                ];
                 
-                transferButtons.forEach(button => {
-                    if (button) {
-                        button.disabled = false;
-                        button.style.display = 'flex';
-                    }
-                });
+                // Show and enable the transfer button
+                const transferButton = document.getElementById('transferButton');
+                if (transferButton) {
+                    transferButton.disabled = false;
+                    transferButton.style.display = 'flex';
+                    updateTransferButton();
+                }
             },
             onDisconnect: () => {
                 console.log('Disconnected');
@@ -538,19 +594,13 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
-                  // Hide transfer agent buttons
-                const transferButtons = [
-                    document.getElementById('transferNelson'),
-                    document.getElementById('transferBarbarella'),
-                    document.getElementById('transferTaylor')
-                ];
                 
-                transferButtons.forEach(button => {
-                    if (button) {
-                        button.disabled = true;
-                        button.style.display = 'none';
-                    }
-                });
+                // Hide transfer button on disconnect
+                const transferButton = document.getElementById('transferButton');
+                if (transferButton) {
+                    transferButton.disabled = true;
+                    transferButton.style.display = 'none';
+                }
                 
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect                
                 stopMouthAnimation(); // Ensure avatar animation stops
@@ -564,19 +614,13 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
-                  // Hide transfer agent buttons
-                const transferButtons = [
-                    document.getElementById('transferNelson'),
-                    document.getElementById('transferBarbarella'),
-                    document.getElementById('transferTaylor')
-                ];
                 
-                transferButtons.forEach(button => {
-                    if (button) {
-                        button.disabled = true;
-                        button.style.display = 'none';
-                    }
-                });
+                // Hide transfer button on error
+                const transferButton = document.getElementById('transferButton');
+                if (transferButton) {
+                    transferButton.disabled = true;
+                    transferButton.style.display = 'none';
+                }
                 
                 alert('An error occurred during the conversation.');
             },
@@ -602,176 +646,6 @@ async function endConversation() {
 
 // Track if the summary button was clicked to request a summary
 let summarizeRequested = false;
-
-// Generic function to transfer to a specific agent
-async function transferToAgent(targetAgent) {    
-    if (conversation) {
-        try {   
-            // Find the button corresponding to this agent
-            const buttonId = `transfer${targetAgent.charAt(0).toUpperCase() + targetAgent.slice(1)}`;
-            const transferButton = document.getElementById(buttonId);
-            
-            // Disable all transfer buttons to prevent multiple clicks
-            const allButtons = [
-                document.getElementById('transferNelson'),
-                document.getElementById('transferBarbarella'),
-                document.getElementById('transferTaylor')
-            ];
-            
-            allButtons.forEach(btn => {
-                if (btn) {
-                    btn.disabled = true;
-                    if (btn === transferButton) {
-                        btn.classList.add('loading');
-                        btn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                <polyline points="9 10 4 15 9 20"></polyline>
-                            </svg>
-                            Switching...
-                        `;
-                    }
-                }
-            });
-              
-            console.log(`Before transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-                // Find the index of the target agent in our rotation
-            const targetIndex = debaterRotation.indexOf(targetAgent);
-            if (targetIndex !== -1) {
-                currentDebaterIndex = targetIndex;
-                currentDebater = debaterRotation[currentDebaterIndex];
-            } else {
-                console.error(`Target agent '${targetAgent}' not found in rotation!`);
-                throw new Error(`Invalid agent: ${targetAgent}`);
-            }
-            
-            // Log the transfer for debugging
-            console.log(`After transfer: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-            
-            // Update the avatar to match the new debater
-            const avatarWrapper = document.getElementById('animatedAvatar');
-            if (avatarWrapper) {
-                avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
-                console.log(`Avatar updated to: ${currentDebater}`);
-            } else {
-                console.error('Avatar wrapper element not found!');
-            }
-            
-            console.log(`Transfer agent requested at ${new Date().toISOString()}, switching to ${currentDebater}`);
-            
-            try {
-                // Prepare the transfer prompt based on the target agent
-                const transferPrompt = `I want to debate ${targetAgent}. Do not say a single word while transferring`;
-
-                console.log(`Sending transfer prompt for ${currentDebater}: "${transferPrompt}"`);
-                
-                // Method 2: Using sendUserMessage 
-                if (typeof conversation.sendUserMessage === 'function') {
-                    await conversation.sendUserMessage(transferPrompt);
-                    console.log('Transfer requested using sendUserMessage');
-                }
-                
-            } catch (innerError) {
-                console.error('Error sending transfer message:', innerError);
-                throw innerError;
-            }
-            
-            // Re-enable all transfer buttons after a short delay
-            setTimeout(() => {
-                allButtons.forEach(btn => {
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.classList.remove('loading');
-                        
-                        // Reset button text based on the agent
-                        if (btn.id === 'transferNelson') {
-                            btn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                    <polyline points="9 10 4 15 9 20"></polyline>
-                                </svg>
-                                Nelson
-                            `;
-                        } else if (btn.id === 'transferBarbarella') {
-                            btn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                    <polyline points="9 10 4 15 9 20"></polyline>
-                                </svg>
-                                Barbarella
-                            `;
-                        } else if (btn.id === 'transferTaylor') {
-                            btn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                    <polyline points="9 10 4 15 9 20"></polyline>
-                                </svg>
-                                Taylor
-                            `;
-                        }
-                    }
-                });
-            }, 3000);
-        } catch (error) {
-            console.error('Error transferring agent:', error);
-            alert('Failed to transfer agent. Please try again.');
-            
-            // Re-enable all transfer buttons on error
-            const allButtons = [
-                document.getElementById('transferNelson'),
-                document.getElementById('transferBarbarella'),
-                document.getElementById('transferTaylor')
-            ];
-            
-            allButtons.forEach(btn => {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.classList.remove('loading');
-                    
-                    // Reset button text based on the agent
-                    if (btn.id === 'transferNelson') {
-                        btn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                <polyline points="9 10 4 15 9 20"></polyline>
-                            </svg>
-                            Nelson
-                        `;
-                    } else if (btn.id === 'transferBarbarella') {
-                        btn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                <polyline points="9 10 4 15 9 20"></polyline>
-                            </svg>
-                            Barbarella
-                        `;
-                    } else if (btn.id === 'transferTaylor') {
-                        btn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                                <polyline points="9 10 4 15 9 20"></polyline>
-                            </svg>
-                            Taylor
-                        `;
-                    }
-                }
-            });
-        }
-    }
-}
-
-// Specific transfer functions for each agent
-async function transferToNelson() {
-    await transferToAgent('nelson');
-}
-
-async function transferToBarbarella() {
-    await transferToAgent('barbarella');
-}
-
-async function transferToTaylor() {
-    await transferToAgent('taylor');
-}
 
 // Function to request a summary of the conversation
 async function summarizeConversation() {
@@ -915,18 +789,12 @@ async function initializeDebate() {
     // Ensure initial button states
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
-      // Initialize transfer buttons state
-    const transferButtons = [
-        document.getElementById('transferNelson'),
-        document.getElementById('transferBarbarella'),
-        document.getElementById('transferTaylor')
-    ];
     
-    transferButtons.forEach(button => {
-        if (button) {
-            button.style.display = 'none';
-        }
-    });
+    // Hide transfer button initially
+    const transferBtn = document.getElementById('transferButton');
+    if (transferBtn) {
+        transferBtn.style.display = 'none';
+    }
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
@@ -955,9 +823,7 @@ window.addEventListener('load', initializeDebate);
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
-document.getElementById('transferNelson').addEventListener('click', transferToNelson);
-document.getElementById('transferBarbarella').addEventListener('click', transferToBarbarella);
-document.getElementById('transferTaylor').addEventListener('click', transferToTaylor);
+document.getElementById('transferButton').addEventListener('click', transferToNextDebater);
 
 
 // Initialize avatar when page loads
@@ -975,22 +841,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     const summaryButton = document.getElementById('summaryButton');
+    const transferBtn = document.getElementById('transferButton');
     
     // Ensure initial button states
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
-      // Initialize transfer buttons state
-    const transferButtons = [
-        document.getElementById('transferNelson'),
-        document.getElementById('transferBarbarella'),
-        document.getElementById('transferTaylor')
-    ];
     
-    transferButtons.forEach(button => {
-        if (button) {
-            button.style.display = 'none';
-        }
-    });
+    // Hide transfer button initially
+    if (transferBtn) {
+        transferBtn.style.display = 'none';
+    }
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
