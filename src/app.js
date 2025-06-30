@@ -7,10 +7,119 @@ let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
 
 // Track the current debater and define the rotation order
-// The rotation order is: 1. Nelson Mandela, 2. Barbarella, 3. Taylor Swift
-let currentDebaterIndex = 0; // Start with the first debater (Nelson)
-const debaterRotation = ['nelson', 'barbarella', 'taylor']; // Order matters!
+const debaterRotation = ['nelson', 'taylor', 'barbarella']; // Order matters!
+let currentDebaterIndex = 0; // Start with Nelson Mandela
 let currentDebater = debaterRotation[currentDebaterIndex];
+let isAgentSpeaking = false;
+
+// Function to get the next debater in rotation
+function getNextDebater() {
+    if (currentDebaterIndex >= debaterRotation.length - 1) {
+        return null; // No more debaters in rotation
+    }
+    return debaterRotation[currentDebaterIndex + 1];
+}
+
+// Function to update the transfer button text
+function updateTransferButton() {
+    const transferButton = document.getElementById('transferButton');
+    const transferButtonText = document.getElementById('transferButtonText');
+    const nextDebater = getNextDebater();
+
+    if (nextDebater) {
+        const displayName = nextDebater.charAt(0).toUpperCase() + nextDebater.slice(1);
+        transferButtonText.textContent = `Switch to ${displayName}`;
+        transferButton.style.display = '';
+        transferButton.disabled = isAgentSpeaking;
+    } else {
+        transferButton.style.display = 'none'; // Hide button after last debater
+    }
+}
+
+// Function to transfer to the next debater
+async function transferToNextDebater() {
+    if (isAgentSpeaking) {
+        console.log('Cannot transfer while agent is speaking');
+        return;
+    }
+
+    const nextDebater = getNextDebater();
+    if (!nextDebater) {
+        console.log('No more debaters in rotation');
+        return;
+    }
+
+    try {
+        const transferButton = document.getElementById('transferButton');
+        transferButton.disabled = true;
+        transferButton.classList.add('loading');
+        document.getElementById('transferButtonText').textContent = 'Switching...';
+
+        // Update the debater index and current debater
+        currentDebaterIndex++;
+        currentDebater = debaterRotation[currentDebaterIndex];
+        
+        // Update the avatar
+        const avatarWrapper = document.getElementById('animatedAvatar');
+        if (avatarWrapper) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
+        }
+
+        // Send transfer message to conversation
+        try {
+            const transferPrompt = `I want to debate ${currentDebater}. Do not say a single word while transferring`;
+            if (conversation && typeof conversation.sendUserMessage === 'function') {
+                await conversation.sendUserMessage(transferPrompt);
+            }
+        } catch (error) {
+            console.error('Error sending transfer message:', error);
+        }
+
+        // Update the transfer button for the next debater
+        setTimeout(() => {
+            transferButton.classList.remove('loading');
+            updateTransferButton();
+        }, 2000);
+
+    } catch (error) {
+        console.error('Error transferring to next debater:', error);
+        const transferButton = document.getElementById('transferButton');
+        transferButton.disabled = false;
+        transferButton.classList.remove('loading');
+        updateTransferButton();
+    }
+}
+
+// Update the setAgentSpeaking function to handle button states
+function setAgentSpeaking(speaking) {
+    isAgentSpeaking = speaking;
+    const buttons = [
+        document.getElementById('startButton'),
+        document.getElementById('endButton'),
+        document.getElementById('summaryButton'),
+        document.getElementById('transferButton'),
+        document.getElementById('topic')
+    ];
+
+    buttons.forEach(button => {
+        if (button) {
+            if (speaking) {
+                if (button.id === 'endButton') {
+                    button.disabled = false;
+                    button.style.display = '';
+                } else {
+                    button.disabled = true;
+                }
+            } else {
+                if (button.id === 'endButton') {
+                    button.style.display = 'none';
+                } else {
+                    button.disabled = false;
+                }
+            }
+        }
+    });
+}
 
 // Log the initial setup for debugging
 console.log(`Initial setup: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
@@ -786,6 +895,62 @@ async function summarizeConversation() {
         }
     }
 }
+
+// Initialize the debate interface
+async function initializeDebate() {
+    // Reset to ensure we start with Nelson
+    currentDebaterIndex = 0;
+    currentDebater = debaterRotation[currentDebaterIndex];
+    console.log(`Initializing debate: Setting initial debater to ${currentDebater} (index ${currentDebaterIndex})`);
+    
+    // Initialize avatar with Nelson Mandela by default
+    initializeAvatar();
+    
+    // Enable start button when topic is selected
+    const topicSelect = document.getElementById('topic');
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+    const summaryButton = document.getElementById('summaryButton');
+    
+    // Ensure initial button states
+    endButton.style.display = 'none';
+    summaryButton.style.display = 'none';
+      // Initialize transfer buttons state
+    const transferButtons = [
+        document.getElementById('transferNelson'),
+        document.getElementById('transferBarbarella'),
+        document.getElementById('transferTaylor')
+    ];
+    
+    transferButtons.forEach(button => {
+        if (button) {
+            button.style.display = 'none';
+        }
+    });
+    
+    function checkFormValidity() {
+        const topicSelected = topicSelect.value !== '';
+        startButton.disabled = !topicSelected;
+    }
+    
+    // Add event listener for topic selection
+    topicSelect.addEventListener('change', checkFormValidity);
+    
+    // Initial check
+    checkFormValidity();
+    
+    // Set up transfer button handler
+    const transferButton = document.getElementById('transferButton');
+    if (transferButton) {
+        transferButton.addEventListener('click', transferToNextDebater);
+    }
+
+    // Initialize the transfer button state
+    updateTransferButton();
+}
+
+// Call initialize when the window loads
+window.addEventListener('load', initializeDebate);
 
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
