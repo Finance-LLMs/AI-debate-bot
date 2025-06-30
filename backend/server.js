@@ -16,8 +16,8 @@ app.get("/api/signed-url", async (req, res) => {
     let agentId = process.env.AGENT_ID; // Default agent ID
       
     // Map opponent to specific agent ID
-    if (opponent === 'michelle') {
-      agentId = process.env.MICHELLE_AGENT_ID;
+    if (opponent === 'barbarella') {
+      agentId = process.env.BARBARELLA_AGENT_ID;
     } else if (opponent === 'nelson') {
       agentId = process.env.NELSON_AGENT_ID;
     } else if (opponent === 'taylor') {

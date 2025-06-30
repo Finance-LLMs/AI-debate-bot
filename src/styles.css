@@ -618,13 +618,39 @@ body::before {
     animation: summary-loading 0.8s linear infinite;
 }
 
+/* Transfer Button */
+.transfer-button {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    margin-top: 0.75rem;
+    position: relative;
+}
+
+.transfer-button:hover:not(:disabled) {
+    background: linear-gradient(135deg, #059669, #047857) !important;
+}
+
+.transfer-button.loading {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.transfer-button.loading::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    top: 50%;
+    right: 10px;
+    margin-top: -8px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    animation: summary-loading 0.8s linear infinite;
+}
+
 @keyframes summary-loading {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* Avatar Card */
@@ -1060,4 +1086,43 @@ body::before {
     min-height: 100%;
     border-radius: 12px;
     overflow: hidden;
+}
+
+/* Agent Info Styles */
+.agent-info {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 0.5rem;
+    border-left: 4px solid #667eea;
+}
+
+.agent-info p {
+    margin: 0.25rem 0;
+    color: #374151;
+}
+
+.agent-info p:first-child {
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.agent-info small {
+    color: #6b7280;
+    font-style: italic;
+}
+
+/* Enhanced responsive design for agent info */
+@media (max-width: 768px) {
+    .agent-info {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .agent-info {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
 }

@@ -5,6 +5,16 @@ let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
 
+// Agent rotation system
+let currentAgentIndex = 0;
+const agentRotation = ['nelson', 'taylor', 'barbarella'];
+const agentNames = {
+    'nelson': 'Nelson Mandela',
+    'taylor': 'Taylor Swift', 
+    'barbarella': 'Barbarella'
+};
+let currentAgent = 'nelson'; // Start with Nelson
+
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
     return `
@@ -98,7 +108,7 @@ function createAvatarSVG() {
 // Create celebrity avatar with image
 function createCelebrityAvatar(opponent) {
     const imageMap = {
-        'michelle': 'michelle.jpg',
+        'barbarella': 'michelle.jpg', // Using the existing michelle.jpg file for Barbarella
         'nelson': 'nelson.jpg', 
         'taylor': 'taylor.jpg',
         'singapore_uncle': 'singapore_uncle.jpg'
@@ -125,22 +135,6 @@ function createCelebrityAvatar(opponent) {
             </div>
         </div>
     `;
-}
-
-// Initialize avatar
-function initializeAvatar() {
-    const avatarWrapper = document.getElementById('animatedAvatar');
-    const opponentSelect = document.getElementById('opponent');
-    
-    if (avatarWrapper) {
-        const selectedOpponent = opponentSelect ? opponentSelect.value : '';
-        
-        if (selectedOpponent) {
-            avatarWrapper.innerHTML = createCelebrityAvatar(selectedOpponent);
-        } else {
-            avatarWrapper.innerHTML = createAvatarSVG();
-        }
-    }
 }
 
 // Animate mouth when speaking
@@ -243,6 +237,8 @@ function updateStatus(isConnected) {
 function updateSpeakingStatus(mode) {
     const statusElement = document.getElementById('speakingStatus');
     const summaryButton = document.getElementById('summaryButton');
+    const transferButton = document.getElementById('transferButton');
+    const endButton = document.getElementById('endButton');
     
     // Update based on the exact mode string we receive
     const isSpeaking = mode.mode === 'speaking';
@@ -252,33 +248,35 @@ function updateSpeakingStatus(mode) {
     // Animate avatar based on speaking state
     if (isSpeaking) {
         startMouthAnimation();
-        // Disable summary button when agent is speaking
-        if (summaryButton) {
-            summaryButton.disabled = true;
+        // Disable all buttons when agent is speaking
+        if (summaryButton) summaryButton.disabled = true;
+        if (transferButton && transferButton.style.display !== 'none' && currentAgentIndex < agentRotation.length - 1) {
+            transferButton.disabled = true;
         }
+        if (endButton) endButton.disabled = true;
     } else {
         stopMouthAnimation();
         
-        // Only enable summary button when:
-        // 1. Agent is done speaking
-        // 2. Button should be visible
-        // 3. We're not in the middle of a summary request
+        // Re-enable buttons when agent stops speaking
         if (summaryButton && summaryButton.style.display !== 'none' && !summarizeRequested) {
             summaryButton.disabled = false;
         }
+        // Only re-enable transfer button if we're not at the last agent
+        if (transferButton && transferButton.style.display !== 'none' && currentAgentIndex < agentRotation.length - 1) {
+            transferButton.disabled = false;
+        }
+        if (endButton) endButton.disabled = false;
         
         // If the agent just finished speaking and we requested a summary,
         // this is likely the end of the summary response
         if (summarizeRequested) {
             console.log('Agent finished speaking after summary request');
             // Reset the summary request state after a brief delay
-            // to ensure any follow-up API calls have completed
             setTimeout(() => {
                 summarizeRequested = false;
                 
                 // Reset the button if it still exists and should be visible
                 if (summaryButton && summaryButton.style.display !== 'none') {
-                    // Reset button appearance
                     summaryButton.disabled = false;
                     summaryButton.classList.remove('loading');
                     
@@ -296,11 +294,11 @@ function updateSpeakingStatus(mode) {
                     `;
                     console.log('Summary completed, button reset and re-enabled');
                 }
-            }, 1000); // Wait 1 second before resetting to ensure API operations completed
+            }, 1000);
         }
     }
     
-    console.log('Speaking status updated:', { mode, isSpeaking, summarizeRequested }); // Debug log
+    console.log('Speaking status updated:', { mode, isSpeaking, summarizeRequested });
 }
 
 // Function to disable/enable form controls
@@ -317,6 +315,7 @@ async function startConversation() {
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     const summaryButton = document.getElementById('summaryButton');
+    const transferButton = document.getElementById('transferButton');
     
     try {
         // Disable start button immediately to prevent multiple clicks
@@ -329,11 +328,17 @@ async function startConversation() {
             return;
         }
         
-        // Get selected opponent
-        const selectedOpponent = document.getElementById('opponent').value;
+        // Start with Nelson Mandela
+        currentAgent = 'nelson';
+        currentAgentIndex = 0;
         
-        const signedUrl = await getSignedUrl(selectedOpponent);
-        //const agentId = await getAgentId(); // You can switch to agentID for public agents
+        // Update avatar to show current agent
+        const avatarWrapper = document.getElementById('animatedAvatar');
+        if (avatarWrapper) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(currentAgent);
+        }
+        
+        const signedUrl = await getSignedUrl(currentAgent);
         
         // Set user stance to "for" and AI stance to "against" by default
         const userStance = "for";
@@ -345,14 +350,13 @@ async function startConversation() {
         
         conversation = await Conversation.startSession({
             signedUrl: signedUrl,
-            //agentId: agentId, // You can switch to agentID for public agents
             dynamicVariables: {
                 topic: topicText,
                 user_stance: userStance,
                 ai_stance: aiStance
             },
             onConnect: () => {
-                console.log('Connected');
+                console.log('Connected to', agentNames[currentAgent]);
                 updateStatus(true);
                 setFormControlsState(true); // Disable form controls
                 startButton.style.display = 'none';
@@ -360,9 +364,28 @@ async function startConversation() {
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
                 summaryButton.style.display = 'flex';
+                
+                // Show transfer button only if not at the last agent (Barbarella)
+                if (currentAgentIndex < agentRotation.length - 1) {
+                    const nextAgent = agentRotation[currentAgentIndex + 1];
+                    transferButton.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <line x1="4" y1="20" x2="21" y2="3"></line>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <line x1="15" y1="15" x2="21" y2="21"></line>
+                            <line x1="4" y1="4" x2="9" y2="9"></line>
+                        </svg>
+                        Switch to ${agentNames[nextAgent]}
+                    `;
+                    transferButton.disabled = false;
+                    transferButton.style.display = 'flex';
+                } else {
+                    transferButton.style.display = 'none';
+                }
             },            
             onDisconnect: () => {
-                console.log('Disconnected');
+                console.log('Disconnected from', agentNames[currentAgent]);
                 updateStatus(false);
                 setFormControlsState(false); // Re-enable form controls
                 startButton.disabled = false;
@@ -371,6 +394,8 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                transferButton.disabled = true;
+                transferButton.style.display = 'none';
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
             },
@@ -383,10 +408,12 @@ async function startConversation() {
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
                 summaryButton.style.display = 'none';
+                transferButton.disabled = true;
+                transferButton.style.display = 'none';
                 alert('An error occurred during the conversation.');
             },
             onModeChange: (mode) => {
-                console.log('Mode changed:', mode); // Debug log to see exact mode object
+                console.log('Mode changed:', mode);
                 updateSpeakingStatus(mode);
             }
         });
@@ -402,6 +429,130 @@ async function endConversation() {
     if (conversation) {
         await conversation.endSession();
         conversation = null;
+    }
+}
+
+// Transfer to next agent in rotation
+async function transferToNextAgent() {
+    const transferButton = document.getElementById('transferButton');
+    
+    try {
+        // Disable transfer button and show loading state
+        transferButton.disabled = true;
+        transferButton.classList.add('loading');
+        transferButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 3 21 3 21 8"></polyline>
+                <line x1="4" y1="20" x2="21" y2="3"></line>
+                <polyline points="21 16 21 21 16 21"></polyline>
+                <line x1="15" y1="15" x2="21" y2="21"></line>
+                <line x1="4" y1="4" x2="9" y2="9"></line>
+            </svg>
+            Transferring...
+        `;
+        
+        // End current conversation
+        if (conversation) {
+            await conversation.endSession();
+            conversation = null;
+        }
+        
+        // Move to next agent
+        currentAgentIndex++;
+        if (currentAgentIndex >= agentRotation.length) {
+            console.error('Cannot transfer beyond the last agent');
+            return;
+        }
+        
+        currentAgent = agentRotation[currentAgentIndex];
+        console.log('Transferring to:', agentNames[currentAgent]);
+        
+        // Update avatar to show new agent
+        const avatarWrapper = document.getElementById('animatedAvatar');
+        if (avatarWrapper) {
+            avatarWrapper.innerHTML = createCelebrityAvatar(currentAgent);
+        }
+        
+        // Get new signed URL for the next agent
+        const signedUrl = await getSignedUrl(currentAgent);
+        
+        // Get topic for continuity
+        const topicSelect = document.getElementById('topic');
+        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
+        
+        // Start new conversation with next agent
+        conversation = await Conversation.startSession({
+            signedUrl: signedUrl,
+            dynamicVariables: {
+                topic: topicText,
+                user_stance: "for",
+                ai_stance: "against"
+            },
+            onConnect: () => {
+                console.log('Connected to', agentNames[currentAgent]);
+                updateStatus(true);
+                
+                // Reset transfer button
+                transferButton.classList.remove('loading');
+                
+                // Update button text for next agent or hide if at last agent
+                if (currentAgentIndex < agentRotation.length - 1) {
+                    const nextAgent = agentRotation[currentAgentIndex + 1];
+                    transferButton.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <line x1="4" y1="20" x2="21" y2="3"></line>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <line x1="15" y1="15" x2="21" y2="21"></line>
+                            <line x1="4" y1="4" x2="9" y2="9"></line>
+                        </svg>
+                        Switch to ${agentNames[nextAgent]}
+                    `;
+                    transferButton.disabled = false;
+                    transferButton.style.display = 'flex';
+                } else {
+                    transferButton.style.display = 'none';
+                }
+            },
+            onDisconnect: () => {
+                console.log('Disconnected from', agentNames[currentAgent]);
+                updateStatus(false);
+                setFormControlsState(false);
+                
+                // Reset all buttons to initial state
+                const startButton = document.getElementById('startButton');
+                const endButton = document.getElementById('endButton');
+                const summaryButton = document.getElementById('summaryButton');
+                
+                startButton.disabled = false;
+                startButton.style.display = 'flex';
+                endButton.disabled = true;
+                endButton.style.display = 'none';
+                summaryButton.disabled = true;
+                summaryButton.style.display = 'none';
+                transferButton.disabled = true;
+                transferButton.style.display = 'none';
+                
+                updateSpeakingStatus({ mode: 'listening' });
+                stopMouthAnimation();
+            },
+            onError: (error) => {
+                console.error('Transfer conversation error:', error);
+                transferButton.classList.remove('loading');
+                transferButton.disabled = false;
+                alert('An error occurred during agent transfer.');
+            },
+            onModeChange: (mode) => {
+                console.log('Mode changed for', agentNames[currentAgent], ':', mode);
+                updateSpeakingStatus(mode);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error transferring to next agent:', error);
+        transferButton.classList.remove('loading');
+        transferButton.disabled = false;
+        alert('Failed to transfer to next agent. Please try again.');
     }
 }
 
@@ -534,34 +685,57 @@ async function summarizeConversation() {
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
+document.getElementById('transferButton').addEventListener('click', transferToNextAgent);
 
 // Initialize avatar when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    initializeAvatar();
+    // Initialize with Nelson Mandela by default
+    currentAgent = 'nelson';
+    currentAgentIndex = 0;
     
-    // Enable start button when topic and opponent are selected
+    const avatarWrapper = document.getElementById('animatedAvatar');
+    if (avatarWrapper) {
+        avatarWrapper.innerHTML = createCelebrityAvatar(currentAgent);
+    }
+    
+    // Enable start button when topic is selected (opponent is now fixed to start with Nelson)
     const topicSelect = document.getElementById('topic');
-    const opponentSelect = document.getElementById('opponent');
     const startButton = document.getElementById('startButton');
     const endButton = document.getElementById('endButton');
     const summaryButton = document.getElementById('summaryButton');
+    const transferButton = document.getElementById('transferButton');
     
     // Ensure initial button states
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
+    transferButton.style.display = 'none';
+    
+    // Set initial transfer button text
+    transferButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <line x1="4" y1="20" x2="21" y2="3"></line>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <line x1="15" y1="15" x2="21" y2="21"></line>
+            <line x1="4" y1="4" x2="9" y2="9"></line>
+        </svg>
+        Switch to ${agentNames['taylor']}
+    `;
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
-        const opponentSelected = opponentSelect.value !== '';
-        startButton.disabled = !(topicSelected && opponentSelected);
+        startButton.disabled = !topicSelected; // Only need topic now
     }
     
-    // Add event listeners for all form controls
+    // Add event listener for topic selection
     topicSelect.addEventListener('change', checkFormValidity);
-    opponentSelect.addEventListener('change', () => {
-        checkFormValidity();
-        initializeAvatar(); // Update avatar when opponent changes
-    });
+    
+    // Hide opponent selection since it's now automatic
+    const opponentSelect = document.getElementById('opponent');
+    const opponentGroup = opponentSelect.closest('.control-group');
+    if (opponentGroup) {
+        opponentGroup.style.display = 'none';
+    }
     
     // Initial check
     checkFormValidity();
