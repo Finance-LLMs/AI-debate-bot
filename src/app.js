@@ -411,8 +411,9 @@ if (currentDebater === 'taylor') {
 //Scripted Conversation
 
 // --- CONFIGURATION ---
-const YOUR_API_KEY = 'sk_93765159086d34051adfa86341498e17cb63a6e9063f4f61';
-const YOUR_VOICE_ID = '2qCP3o35fImJyrRdvBTy';
+// Load API key and voice ID from environment variables (injected at build time)
+const XI_API_KEY_variable = process.env.XI_API_KEY;
+const TAYLOR_AGENT_ID_variable = process.env.TAYLOR_AGENT_ID;
 
 // --- SCRIPT LINES ---
 
@@ -439,7 +440,7 @@ const playScriptLine = async (text, voiceId) => {
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
       method: 'POST',
       headers: {
-        'xi-api-key': YOUR_API_KEY,
+        'xi-api-key': XI_API_KEY_variable,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -553,7 +554,7 @@ async function startScriptedAI() {
   await startMicMonitoring();
 
   // Step 2: Initial greeting
-  await playScriptLine("Good morning everyone, welcome to our AI Eras Tour!", YOUR_VOICE_ID);
+  await playScriptLine("Good morning everyone, welcome to our AI Eras Tour!", TAYLOR_AGENT_ID_variable);
 
   // Step 3: Wait for user input to proceed
 //   await waitForUserClick();
@@ -562,7 +563,7 @@ await waitForUserToStopSpeaking();
 
   // Step 4: Go through scripted lines
   for (let line of aiLines) {
-    await playScriptLine(line, YOUR_VOICE_ID);
+    await playScriptLine(line, TAYLOR_AGENT_ID_variable);
     await waitForUserToStopSpeaking();
     // await waitForUserClick();
   }
