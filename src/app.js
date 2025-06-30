@@ -6,6 +6,9 @@ let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
 
+// Flag to track if we're in the middle of switching agents
+let isSwitchingAgent = false;
+
 // Track the current debater and define the rotation order
 // The rotation order is: 1. Nelson Mandela, 2. Taylor Swift, 3. Barbarella
 let currentDebaterIndex = 0; // Start with the first debater (Nelson)
@@ -263,28 +266,50 @@ function updateStatus(isConnected) {
 function updateSpeakingStatus(mode) {
     const statusElement = document.getElementById('speakingStatus');
     const summaryButton = document.getElementById('summaryButton');
+    const endButton = document.getElementById('endButton');
     
     // Get reference to the next debater button
     const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
     
-    // Update based on the exact mode string we receive
-    const isSpeaking = mode.mode === 'speaking';
+    // More robust mode checking - handles both objects with mode property and simple strings
+    // This should help with inconsistencies between different agents
+    const isSpeaking = typeof mode === 'object' 
+        ? (mode.mode === 'speaking' || mode.status === 'speaking')  // Check both possible properties
+        : mode === 'speaking';                                     // Handle direct string
+    
     statusElement.textContent = isSpeaking ? 'Agent Speaking' : 'Agent Silent';
     statusElement.classList.toggle('speaking', isSpeaking);
+    
+    console.log('Speaking status updated:', { 
+        isSpeaking, 
+        currentDebater, 
+        isSwitchingAgent,
+        mode: JSON.stringify(mode), // Log the full mode object to debug
+        switchButtonVisible: switchToNextDebaterButton?.style.display === 'flex'
+    });
+    
+    // Skip button state changes if we're in the middle of switching agents
+    if (isSwitchingAgent) {
+        console.log('SPEAKING: Skipping button state updates during agent switch');
+        return;
+    }
     
     // Animate avatar based on speaking state
     if (isSpeaking) {
         startMouthAnimation();
         
-        // Disable summary button when agent is speaking
+        // Force disable all action buttons when agent is speaking
         if (summaryButton) {
+            console.log('SPEAKING: Disabling summary button');
             summaryButton.disabled = true;
         }
         
-        // Disable next debater button while agent is speaking
-        if (switchToNextDebaterButton && switchToNextDebaterButton.style.display !== 'none') {
+        if (switchToNextDebaterButton) {
+            console.log('SPEAKING: Disabling next debater button');
             switchToNextDebaterButton.disabled = true;
         }
+        
+        // End button should remain enabled
     } else {
         stopMouthAnimation();
         
@@ -292,12 +317,14 @@ function updateSpeakingStatus(mode) {
         // 1. Agent is done speaking
         // 2. Button should be visible
         // 3. We're not in the middle of a summary request
-        if (summaryButton && summaryButton.style.display !== 'none' && !summarizeRequested) {
+        if (summaryButton && summaryButton.style.display === 'flex' && !summarizeRequested) {
+            console.log('SPEAKING: Re-enabling summary button');
             summaryButton.disabled = false;
         }
         
         // Re-enable the next debater button when agent stops speaking (as long as it's visible)
-        if (switchToNextDebaterButton && switchToNextDebaterButton.style.display !== 'none') {
+        if (switchToNextDebaterButton && switchToNextDebaterButton.style.display === 'flex' && !isSwitchingAgent) {
+            console.log('SPEAKING: Re-enabling next debater button');
             switchToNextDebaterButton.disabled = false;
         }
         
@@ -333,476 +360,47 @@ function updateSpeakingStatus(mode) {
             }, 1000); // Wait 1 second before resetting to ensure API operations completed
         }
     }
-    
-    console.log('Speaking status updated:', { mode, isSpeaking, summarizeRequested }); // Debug log
 }
 
-// Function to disable/enable form controls
-function setFormControlsState(disabled) {
-    const topicSelect = document.getElementById('topic');
-    
-    topicSelect.disabled = disabled;
-    // Opponent selection has been removed, only controlling topic now
-}
+// Add a monitoring function for Taylor Swift to ensure buttons stay disabled
+let taylorButtonMonitorInterval = null;
 
-async function startConversation() {
-    const startButton = document.getElementById('startButton');
-    const endButton = document.getElementById('endButton');
+function ensureTaylorButtonState() {
+    // Only run this function if Taylor is the current agent
+    if (currentDebater !== 'taylor') {
+        if (taylorButtonMonitorInterval) {
+            clearInterval(taylorButtonMonitorInterval);
+            taylorButtonMonitorInterval = null;
+        }
+        return;
+    }
+    
+    console.log('TAYLOR MONITOR: Checking button states for Taylor Swift');
+    
+    // Get references to the buttons
     const summaryButton = document.getElementById('summaryButton');
-    
-    try {
-        // Disable start button immediately to prevent multiple clicks
-        startButton.disabled = true;
-        
-        const hasPermission = await requestMicrophonePermission();
-        if (!hasPermission) {
-            alert('Microphone permission is required for the conversation.');
-            startButton.disabled = false;
-            return;
-        }        // We're using a single agent for all debates, with Nelson as the initial opponent
-        // Reset to Nelson Mandela when starting a new conversation
-        currentDebaterIndex = 0; // Reset to first in rotation (Nelson)
-        currentDebater = debaterRotation[currentDebaterIndex];
-        
-        // Update avatar to Nelson
-        const avatarWrapper = document.getElementById('animatedAvatar');
-        if (avatarWrapper) {
-            avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
-        }
-        
-        // Get signed URL for the current debater (Nelson initially)
-        const signedUrl = await getSignedUrl(currentDebater);
-        
-        // Set user stance to "for" and AI stance to "against" by default
-        const userStance = "for";
-        const aiStance = "against";
-        
-        // Get the actual topic text instead of the value
-        const topicSelect = document.getElementById('topic');
-        const topicText = topicSelect.options[topicSelect.selectedIndex].text;
-        
-        conversation = await Conversation.startSession({
-            signedUrl: signedUrl,
-            // Using a single agent for all debates
-            dynamicVariables: {
-                topic: topicText,
-                user_stance: userStance,
-                ai_stance: aiStance,
-                opponent: currentDebater // Pass the current debater from rotation
-            },
-            onConnect: () => {
-                console.log('Connected');
-                updateStatus(true);
-                setFormControlsState(true); // Disable form controls
-                startButton.style.display = 'none';
-                endButton.disabled = false;
-                endButton.style.display = 'flex';
-                summaryButton.disabled = false;
-                summaryButton.style.display = 'flex';
-                  // Enable and show the next debater button
-                const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
-                if (switchToNextDebaterButton) {
-                    switchToNextDebaterButton.disabled = false;
-                    switchToNextDebaterButton.style.display = 'flex';
-                    updateNextDebaterButtonText(); // Update the button text to show the next debater
-                }
-            },
-            onDisconnect: () => {
-                console.log('Disconnected');
-                updateStatus(false);
-                setFormControlsState(false); // Re-enable form controls
-                startButton.disabled = false;
-                startButton.style.display = 'flex';
-                endButton.disabled = true;
-                endButton.style.display = 'none';
-                summaryButton.disabled = true;
-                summaryButton.style.display = 'none';
-                
-                // Hide the next debater button
-                const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
-                if (switchToNextDebaterButton) {
-                    switchToNextDebaterButton.disabled = true;
-                    switchToNextDebaterButton.style.display = 'none';
-                }
-                
-                updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect                
-                stopMouthAnimation(); // Ensure avatar animation stops
-            },
-            onError: (error) => {
-                console.error('Conversation error:', error);
-                setFormControlsState(false); // Re-enable form controls on error
-                startButton.disabled = false;
-                startButton.style.display = 'flex';
-                endButton.disabled = true;
-                endButton.style.display = 'none';
-                summaryButton.disabled = true;
-                summaryButton.style.display = 'none';
-                
-                // Hide the next debater button
-                const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
-                if (switchToNextDebaterButton) {
-                    switchToNextDebaterButton.disabled = true;
-                    switchToNextDebaterButton.style.display = 'none';
-                }
-                
-                alert('An error occurred during the conversation.');
-            },
-            onModeChange: (mode) => {
-                console.log('Mode changed:', mode); // Debug log to see exact mode object
-                updateSpeakingStatus(mode);
-            }
-        });
-    } catch (error) {
-        console.error('Error starting conversation:', error);
-        setFormControlsState(false); // Re-enable form controls on error
-        startButton.disabled = false;
-        alert('Failed to start conversation. Please try again.');
-    }
-}
-
-async function endConversation() {
-    if (conversation) {
-        await conversation.endSession();
-        conversation = null;
-    }
-}
-
-// Track if the summary button was clicked to request a summary
-let summarizeRequested = false;
-
-// Function to switch to a specific agent by ending the current session and starting a new one
-async function switchToAgent(targetAgent) {    
-    if (conversation) {
-        try {   
-            // Get the next debater button
-            const switchButton = document.getElementById('switchToNextDebater');
-            
-            // Disable the button to prevent multiple clicks
-            if (switchButton) {
-                switchButton.disabled = true;
-                switchButton.classList.add('loading');
-                switchButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M17 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10z"></path>
-                        <polyline points="9 10 4 15 9 20"></polyline>
-                    </svg>
-                    Switching...
-                `;
-            }
-              
-            console.log(`Before switch: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-            
-            // Find the index of the target agent in our rotation
-            const targetIndex = debaterRotation.indexOf(targetAgent);
-            if (targetIndex !== -1) {
-                currentDebaterIndex = targetIndex;
-                currentDebater = debaterRotation[currentDebaterIndex];
-            } else {
-                console.error(`Target agent '${targetAgent}' not found in rotation!`);
-                throw new Error(`Invalid agent: ${targetAgent}`);
-            }
-            
-            // Log the switch for debugging
-            console.log(`After switch: currentDebaterIndex=${currentDebaterIndex}, currentDebater=${currentDebater}`);
-            
-            // Update the avatar to match the new debater
-            const avatarWrapper = document.getElementById('animatedAvatar');
-            if (avatarWrapper) {
-                avatarWrapper.innerHTML = createCelebrityAvatar(currentDebater);
-                console.log(`Avatar updated to: ${currentDebater}`);
-            } else {
-                console.error('Avatar wrapper element not found!');
-            }
-            
-            console.log(`Switch agent requested at ${new Date().toISOString()}, switching to ${currentDebater}`);
-            
-            // End the current session
-            await conversation.endSession();
-            conversation = null;
-            
-            // Get the topic
-            const topicSelect = document.getElementById('topic');
-            const topicText = topicSelect.options[topicSelect.selectedIndex].text;
-            
-            // Get a new signed URL for the specific agent
-            const signedUrl = await getSignedUrl(currentDebater);
-            
-            // Create a new session with the new agent
-            conversation = await Conversation.startSession({
-                signedUrl: signedUrl,
-                dynamicVariables: {
-                    topic: topicText,
-                    user_stance: "for",
-                    ai_stance: "against",
-                    opponent: currentDebater
-                },
-                onConnect: () => {
-                    console.log('Connected to new agent');
-                    updateStatus(true);
-                },
-                onDisconnect: () => {
-                    console.log('Disconnected');
-                    updateStatus(false);
-                    
-                    // Only reset UI if we're not in the middle of switching agents
-                    if (!conversation) {
-                        setFormControlsState(false);
-                        document.getElementById('startButton').disabled = false;
-                        document.getElementById('startButton').style.display = 'flex';
-                        document.getElementById('endButton').disabled = true;
-                        document.getElementById('endButton').style.display = 'none';
-                        document.getElementById('summaryButton').disabled = true;
-                        document.getElementById('summaryButton').style.display = 'none';
-                        
-                        // Hide the next debater button
-                        const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
-                        if (switchToNextDebaterButton) {
-                            switchToNextDebaterButton.disabled = true;
-                            switchToNextDebaterButton.style.display = 'none';
-                        }
-                    }
-                    
-                    updateSpeakingStatus({ mode: 'listening' });
-                    stopMouthAnimation();
-                },
-                onError: (error) => {
-                    console.error('Conversation error:', error);
-                    alert('An error occurred during the conversation.');
-                },
-                onModeChange: (mode) => {
-                    console.log('Mode changed:', mode);
-                    updateSpeakingStatus(mode);
-                }
-            });
-            
-            // Re-enable the next debater button after a short delay
-            setTimeout(() => {
-                const switchButton = document.getElementById('switchToNextDebater');
-                if (switchButton) {
-                    switchButton.disabled = false;
-                    switchButton.classList.remove('loading');
-                    
-                    // Update the button text to show the next debater
-                    updateNextDebaterButtonText();
-                }
-            }, 3000);
-        } catch (error) {
-            console.error('Error switching agent:', error);
-            alert('Failed to switch agent. Please try again.');
-            
-            // Re-enable the next debater button on error
-            const switchButton = document.getElementById('switchToNextDebater');
-            if (switchButton) {
-                switchButton.disabled = false;
-                switchButton.classList.remove('loading');
-                
-                // Update the button text to show the next debater
-                updateNextDebaterButtonText();
-            }
-        }
-    }
-}
-
-// Function to get the next debater in rotation
-function getNextDebater() {
-    // Calculate the next index (cycling back to 0 if we reach the end)
-    const nextIndex = (currentDebaterIndex + 1) % debaterRotation.length;
-    return debaterRotation[nextIndex];
-}
-
-// Function to update the next debater button text
-function updateNextDebaterButtonText() {
-    const nextDebater = getNextDebater();
-    const displayNames = {
-        'nelson': 'Nelson Mandela',
-        'taylor': 'Taylor Swift',
-        'barbarella': 'Barbarella'
-    };
-    
-    const buttonTextElement = document.getElementById('nextDebaterButtonText');
-    if (buttonTextElement) {
-        buttonTextElement.textContent = `Switch to ${displayNames[nextDebater]}`;
-    }
-}
-
-// Function to switch to the next debater in rotation
-async function switchToNextDebater() {
-    const nextDebater = getNextDebater();
-    await switchToAgent(nextDebater);
-    // After switch, update button text for the next rotation
-    updateNextDebaterButtonText();
-}
-
-
-// These specific agent switch functions are no longer needed with the single button approach
-
-// Function to request a summary of the conversation
-async function summarizeConversation() {
-    if (conversation && !summarizeRequested) {
-        try {
-            // Set flag to indicate we're expecting a summary
-            summarizeRequested = true;
-            
-            // Disable the summary button and add loading indicator
-            const summaryButton = document.getElementById('summaryButton');
-            if (summaryButton) {
-                summaryButton.disabled = true;
-                summaryButton.classList.add('loading');
-                
-                // Change button text to indicate processing
-                const originalText = summaryButton.innerHTML;
-                summaryButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="8" y1="6" x2="21" y2="6"></line>
-                        <line x1="8" y1="12" x2="21" y2="12"></line>
-                        <line x1="8" y1="18" x2="21" y2="18"></line>
-                        <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                        <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                        <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                    </svg>
-                    Creating Summary...
-                `;
-            }
-            
-            // Log the request time for debugging
-            console.log(`Summary requested at ${new Date().toISOString()}`);
-            
-            // Send a message to the AI asking for a summary
-            // Try different methods in case the API has changed
-            try {
-                // Prepare the summary message with clear instructions
-                const summaryPrompt = "Please summarize our entire debate so far with key points from both sides.";
-                
-                // Method 1: Using sendTextMessage (original method)
-                if (typeof conversation.sendTextMessage === 'function') {
-                    await conversation.sendTextMessage(summaryPrompt);
-                    console.log('Summary requested using sendTextMessage');
-                } 
-                // Method 2: Using sendUserMessage 
-                else if (typeof conversation.sendUserMessage === 'function') {
-                    await conversation.sendUserMessage(summaryPrompt);
-                    console.log('Summary requested using sendUserMessage');
-                }
-                // Method 3: Using prompt
-                else if (typeof conversation.prompt === 'function') {
-                    await conversation.prompt(summaryPrompt);
-                    console.log('Summary requested using prompt');
-                }                
-                // Method 4: Using write
-                else if (typeof conversation.write === 'function') {
-                    await conversation.write(summaryPrompt);
-                    console.log('Summary requested using write');
-                }
-                // Method 5: Using ask
-                else if (typeof conversation.ask === 'function') {
-                    await conversation.ask(summaryPrompt);
-                    console.log('Summary requested using ask');
-                }
-                // Method 6: If none of the above works, log the available methods and information
-                else {
-                    console.error('No suitable message sending method found on conversation object');
-                    console.log('Available methods:', 
-                        Object.getOwnPropertyNames(Object.getPrototypeOf(conversation)));
-                    console.log('Conversation object keys:', Object.keys(conversation));
-                    console.log('Conversation object:', conversation);
-                    throw new Error('No suitable method to send message to AI');
-                }
-            } catch (innerError) {
-                console.error('Error sending message:', innerError);
-                throw innerError;
-            }
-            
-            console.log('Summary requested, button will remain disabled until summary is complete');
-            
-            // Safety fallback: If after 60 seconds the flag is still set (agent didn't complete speaking),
-            // reset the flag and re-enable the button
-            setTimeout(() => {
-                if (summarizeRequested) {
-                    console.log(`Fallback: Summary request timed out after 60 seconds at ${new Date().toISOString()}`);
-                    summarizeRequested = false;
-                    
-                    // Reset the button if it's still on the page and disabled
-                    const summaryButtonCheck = document.getElementById('summaryButton');
-                    if (summaryButtonCheck) {
-                        if (summaryButtonCheck.disabled && summaryButtonCheck.style.display !== 'none') {
-                            // Reset button to original state
-                            summaryButtonCheck.disabled = false;
-                            summaryButtonCheck.classList.remove('loading');
-                            summaryButtonCheck.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="8" y1="6" x2="21" y2="6"></line>
-                                    <line x1="8" y1="12" x2="21" y2="12"></line>
-                                    <line x1="8" y1="18" x2="21" y2="18"></line>
-                                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                                </svg>
-                                Summarize Debate
-                            `;
-                            console.log('Summary button reset by timeout fallback');
-                        }
-                    }
-                }
-            }, 60000);
-        } catch (error) {
-            console.error('Error requesting summary:', error);
-            alert('Failed to request summary. Please try again.');
-            
-            // Re-enable the button on error after a short delay
-            setTimeout(() => {
-                const summaryButton = document.getElementById('summaryButton');
-                if (summaryButton) {
-                    summaryButton.disabled = false;
-                }
-            }, 1000);
-        }
-    }
-}
-
-document.getElementById('startButton').addEventListener('click', startConversation);
-document.getElementById('endButton').addEventListener('click', endConversation);
-document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
-document.getElementById('switchToNextDebater').addEventListener('click', switchToNextDebater);
-
-
-// Initialize avatar when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    // Reset to ensure we start with Nelson
-    currentDebaterIndex = 0;
-    currentDebater = debaterRotation[currentDebaterIndex];
-    console.log(`DOM loaded: Setting initial debater to ${currentDebater} (index ${currentDebaterIndex})`);
-    
-    // Initialize avatar with Nelson Mandela by default
-    initializeAvatar();
-    
-    // Enable start button when topic is selected
-    const topicSelect = document.getElementById('topic');
-    const startButton = document.getElementById('startButton');
-    const endButton = document.getElementById('endButton');
-    const summaryButton = document.getElementById('summaryButton');
-    
-    // Ensure initial button states
-    endButton.style.display = 'none';
-    summaryButton.style.display = 'none';
-      
-    // Initialize next debater button state
     const switchToNextDebaterButton = document.getElementById('switchToNextDebater');
-    if (switchToNextDebaterButton) {
-        switchToNextDebaterButton.style.display = 'none';
+    
+    // If we're in speaking mode and buttons aren't disabled, fix them
+    const speakingStatus = document.getElementById('speakingStatus');
+    const isCurrentlySpeaking = speakingStatus && speakingStatus.classList.contains('speaking');
+    
+    if (isCurrentlySpeaking) {
+        console.log('TAYLOR MONITOR: Taylor is currently speaking, ensuring buttons are disabled');
+        
+        if (summaryButton && !summaryButton.disabled) {
+            console.log('TAYLOR MONITOR: Re-disabling summary button');
+            summaryButton.disabled = true;
+        }
+        
+        if (switchToNextDebaterButton && !switchToNextDebaterButton.disabled) {
+            console.log('TAYLOR MONITOR: Re-disabling next debater button');
+            switchToNextDebaterButton.disabled = true;
+        }
     }
-    
-    function checkFormValidity() {
-        const topicSelected = topicSelect.value !== '';
-        startButton.disabled = !topicSelected;
-    }
-    
-    // Add event listener for topic selection
-    topicSelect.addEventListener('change', checkFormValidity);
-    
-    // Initial check
-    checkFormValidity();
-});
+}
 
-window.addEventListener('error', function(event) {
-    console.error('Global error:', event.error);
-});
+// Initialize the Taylor button monitor interval when Taylor is the current debater
+if (currentDebater === 'taylor') {
+    taylorButtonMonitorInterval = setInterval(ensureTaylorButtonState, 500); // Check every 500ms
+}

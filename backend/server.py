@@ -23,20 +23,23 @@ app.add_middleware(
 
 # API routes should be defined before static file handling
 @app.get("/api/signed-url")
-async def get_signed_url(opponent: str = None):
+async def get_signed_url(agent: str = None):
     # Default agent ID
     agent_id = os.getenv("AGENT_ID")
     
-    # Map opponent to specific agent ID
-    if opponent == 'michelle':
+    # Map agent to specific agent ID
+    if agent == 'michelle':
         agent_id = os.getenv("MICHELLE_AGENT_ID")
-    elif opponent == 'nelson':
+    elif agent == 'nelson':
         agent_id = os.getenv("NELSON_AGENT_ID")
-    elif opponent == 'taylor':
+    elif agent == 'taylor':
         agent_id = os.getenv("TAYLOR_AGENT_ID")
-    elif opponent == 'singapore_uncle':
+    elif agent == 'barbarella':
+        agent_id = os.getenv("BARBARELLA_AGENT_ID")
+    elif agent == 'singapore_uncle':
         agent_id = os.getenv("SINGAPORE_UNCLE_AGENT_ID")
     
+    print(f"signed-url: Agent={agent}, Using agent_id={agent_id}")
     xi_api_key = os.getenv("XI_API_KEY")
     
     if not agent_id or not xi_api_key:
@@ -60,8 +63,19 @@ async def get_signed_url(opponent: str = None):
 
 #API route for getting Agent ID, used for public agents
 @app.get("/api/getAgentId")
-def get_unsigned_url():
+def get_agent_id(agent: str = None):
+    # Default to AGENT_ID if no agent specified
     agent_id = os.getenv("AGENT_ID")
+    
+    # Map agent name to specific agent ID
+    if agent == 'taylor':
+        agent_id = os.getenv("TAYLOR_AGENT_ID")
+    elif agent == 'nelson':
+        agent_id = os.getenv("NELSON_AGENT_ID")
+    elif agent == 'barbarella':
+        agent_id = os.getenv("BARBARELLA_AGENT_ID")
+    
+    print(f"getAgentId: Agent={agent}, Using agent_id={agent_id}")
     return {"agentId": agent_id}
 
 # Mount static files for specific assets (CSS, JS, etc.)
@@ -71,3 +85,4 @@ app.mount("/static", StaticFiles(directory="dist"), name="static")
 @app.get("/")
 async def serve_root():
     return FileResponse("dist/index.html")
+#     return FileResponse("dist/index.html")

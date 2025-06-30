@@ -20,7 +20,7 @@ app.get("/api/signed-url", async (req, res) => {
     if (agent === 'taylor') {
       agentId = process.env.TAYLOR_AGENT_ID;
     } else if (agent === 'barbarella') {
-      agentId = process.env.AGENT_ID; // Using AGENT_ID for Barbarella
+      agentId = process.env.BARBARELLA_AGENT_ID; // Using AGENT_ID for Barbarella
     } else {
       agentId = process.env.NELSON_AGENT_ID; // Default is Nelson
     }
@@ -57,13 +57,13 @@ app.get("/api/getAgentId", (req, res) => {
   if (agent === 'taylor') {
     agentId = process.env.TAYLOR_AGENT_ID;
   } else if (agent === 'barbarella') {
-    agentId = process.env.AGENT_ID; // Using AGENT_ID for Barbarella
+    agentId = process.env.BARBARELLA_AGENT_ID; // Using AGENT_ID for Barbarella
   } else {
     agentId = process.env.NELSON_AGENT_ID; // Default is Nelson
   }
   
   res.json({
-    agentId: `${agentId}`,
+    agentId: `${agentId}`
   });
 });
 
