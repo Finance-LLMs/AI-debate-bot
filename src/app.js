@@ -684,6 +684,111 @@ async function startQnA() {
     }
 }
 
+//Scripted Conversation
+
+let audioContext;
+let mediaStream;
+let analyser;
+let dataArray;
+
+async function startMicMonitoring() {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const source = audioContext.createMediaStreamSource(mediaStream);
+  analyser = audioContext.createAnalyser();
+  source.connect(analyser);
+  analyser.fftSize = 512;
+  const bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+}
+
+function isUserSpeaking(threshold = 15) {
+  analyser.getByteFrequencyData(dataArray);
+  const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+  return avg > threshold;
+}
+
+async function waitForUserToStopSpeaking(silenceDuration = 2000, pollInterval = 200) {
+    let silentFor = 0;
+    return new Promise(resolve => {
+      const check = () => {
+        if (!isUserSpeaking()) {
+          silentFor += pollInterval;
+          if (silentFor >= silenceDuration) {
+            resolve();
+            return;
+          }
+        } else {
+          silentFor = 0; // Reset timer if user speaks again
+        }
+        setTimeout(check, pollInterval);
+      };
+      check();
+    });
+}
+
+// --- CHANGE AVATAR (MINIMAL MOCK) ---
+function changeAvatar(name) {
+    const avatarWrapper = document.getElementById('animatedAvatar');
+    if (avatarWrapper) {
+        avatarWrapper.innerHTML = createCelebrityAvatar('taylor');
+    }
+}
+
+const playScriptLine = (index) => {
+  return new Promise((resolve, reject) => {
+    const fileNumber = index + 1;
+    const filePath = `/audios/${fileNumber}.mp3`;
+
+    const audio = new Audio(filePath);
+
+    audio.onended = () => {
+      resolve();
+    };
+
+    audio.onerror = (e) => {
+      reject(e);
+    };
+
+    audio.play().then(() => {
+      console.log(`Playing: ${filePath}`);
+    }).catch(err => {
+      console.error(`Playback failed: ${filePath}`, err);
+      reject(err);
+    });
+  });
+};
+
+async function startScriptedAI() {
+  try {
+    changeAvatar("T'AI'lor Swift");
+
+    await startMicMonitoring();
+
+    for (let i = 0; i < 7; i++) {
+      console.log(`Now playing line ${i + 1}`);
+      await playScriptLine(i);
+
+      console.log(`Waiting for user silence...`);
+      await waitForUserToStopSpeaking();
+      console.log(`Silence detected. Proceeding.`);
+    }
+
+    alert("Script complete. Thank you!");
+  } catch (err) {
+    console.error("Error during script:", err);
+    alert("Something went wrong during the scripted playback.");
+  }
+}
+
+// --- SETUP BUTTON ---
+document.addEventListener('DOMContentLoaded', function() {
+  const startScriptedButton = document.getElementById('startScriptedAI');
+  if (startScriptedButton) {
+    startScriptedButton.addEventListener('click', startScriptedAI);
+  }
+});
+
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);

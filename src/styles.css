@@ -1152,6 +1152,87 @@ body::before {
 .ai-text {
     color: #e53e3e;
     font-weight: 600;
+    margin: 0;
+    padding: 0;
+    display: inline;
+}
+
+/* Script Button Styles */
+.button-row {
+    display: flex;
+    flex-direction: row;
+    gap: 2rem;
+    align-items: center;
+    justify-content: flex-start; /* Aligns buttons to the left side */
+    margin: 0.5rem 0;
+}
+
+#startScriptedAI {
+    width: fit-content;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 8px 20px -5px rgba(102, 126, 234, 0.4);
+    position: relative;
+    overflow: hidden;
+    transform: translateY(0);
+    will-change: transform, box-shadow;
+    margin: 1rem 0;
+}
+
+#startScriptedAI:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 25px -5px rgba(102, 126, 234, 0.5);
+    background: linear-gradient(135deg, #5a67d8, #6b46c1);
+}
+
+#startScriptedAI:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 15px -5px rgba(102, 126, 234, 0.4);
+}
+
+#continueBtn {
+    display: none;
+    width: fit-content;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 8px 25px -5px rgba(102, 126, 234, 0.4);
+    position: relative;
+    overflow: hidden;
+    transform: translateY(0);
+    will-change: transform, box-shadow;
+    margin-top: 1rem 0;
+}
+
+#continueBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 25px -5px rgba(102, 126, 234, 0.5);
+    background: linear-gradient(135deg, #5a67d8, #6b46c1);
+}
+
+#continueBtn:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 15px -5px rgba(102, 126, 234, 0.4);
 }
 
 /* Q&A Button styling */
