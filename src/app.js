@@ -4,6 +4,9 @@ import { Conversation } from '@elevenlabs/client';
 let conversation = null;
 let mouthAnimationInterval = null;
 let currentMouthState = 'M130,170 Q150,175 170,170'; // closed mouth
+let isConnecting = false; // Flag to prevent multiple simultaneous connections
+let connectionReadyPromise = null; // Promise to track connection readiness
+let keepAliveInterval = null; // Interval for WebSocket keep-alive
 
 // Create the animated doctor avatar SVG
 function createAvatarSVG() {
@@ -369,7 +372,8 @@ async function startConversation() {
         const topicSelect = document.getElementById('topic');
         const topicText = topicSelect.options[topicSelect.selectedIndex].text;
         
-        conversation = await Conversation.startSession({
+        // Create new conversation with proper WebSocket management
+        await createNewConversation({
             signedUrl: signedUrl,
             //agentId: agentId, // You can switch to agentID for public agents
             dynamicVariables: {
@@ -382,6 +386,7 @@ async function startConversation() {
                 updateStatus(true);
                 setFormControlsState(true); // Disable form controls
                 startButton.style.display = 'none';
+                document.getElementById('startScriptedAI').style.display = 'none';
                 endButton.disabled = false;
                 endButton.style.display = 'flex';
                 summaryButton.disabled = false;
@@ -393,6 +398,7 @@ async function startConversation() {
                 setFormControlsState(false); // Re-enable form controls
                 startButton.disabled = false;
                 startButton.style.display = 'flex';
+                document.getElementById('startScriptedAI').style.display = 'flex';
                 endButton.disabled = true;
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
@@ -400,12 +406,14 @@ async function startConversation() {
                 document.getElementById('qnaButton').style.display = 'block';
                 updateSpeakingStatus({ mode: 'listening' }); // Reset to listening mode on disconnect
                 stopMouthAnimation(); // Ensure avatar animation stops
+                stopKeepAlive(); // Stop keep-alive when disconnected
             },
             onError: (error) => {
                 console.error('Conversation error:', error);
                 setFormControlsState(false); // Re-enable form controls on error
                 startButton.disabled = false;
                 startButton.style.display = 'flex';
+                document.getElementById('startScriptedAI').style.display = 'flex';
                 endButton.disabled = true;
                 endButton.style.display = 'none';
                 summaryButton.disabled = true;
@@ -418,6 +426,9 @@ async function startConversation() {
                 updateSpeakingStatus(mode);
             }
         });
+        
+        console.log('Regular conversation session created successfully');
+        
     } catch (error) {
         console.error('Error starting conversation:', error);
         setFormControlsState(false); // Re-enable form controls on error
@@ -426,24 +437,179 @@ async function startConversation() {
     }
 }
 
-async function endConversation() {
-    console.log('Ending conversation...');
-    if (conversation) {
-        try {
-            await conversation.endSession();
-            console.log('Conversation ended successfully');
-        } catch (error) {
-            console.error('Error ending conversation:', error);
-        } finally {
-            conversation = null;
+// Function to start WebSocket keep-alive mechanism
+function startKeepAlive() {
+    // Clear any existing keep-alive
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+    }
+    
+    // Send a space character every 15 seconds to keep connection alive
+    // (ElevenLabs closes connections after 20 seconds of inactivity)
+    keepAliveInterval = setInterval(() => {
+        if (conversation && safeSendMessage(conversation, " ")) {
+            console.log('Keep-alive signal sent');
         }
-    } else {
-        console.log('No active conversation to end');
+    }, 15000); // 15 seconds
+}
+
+// Function to stop WebSocket keep-alive mechanism
+function stopKeepAlive() {
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+        console.log('Keep-alive stopped');
+    }
+}
+function safeSendMessage(conversation, message) {
+    if (!conversation) {
+        console.error('No active conversation to send message to');
+        return false;
+    }
+    
+    // Check if the conversation has a WebSocket and it's in the right state
+    if (conversation._socket && conversation._socket.readyState !== WebSocket.OPEN) {
+        console.error('WebSocket is not open. State:', conversation._socket.readyState);
+        return false;
+    }
+    
+    try {
+        // Try different methods to send the message
+        if (typeof conversation.sendTextMessage === 'function') {
+            conversation.sendTextMessage(message);
+            console.log('Message sent using sendTextMessage');
+        } else if (typeof conversation.sendUserMessage === 'function') {
+            conversation.sendUserMessage(message);
+            console.log('Message sent using sendUserMessage');
+        } else if (typeof conversation.prompt === 'function') {
+            conversation.prompt(message);
+            console.log('Message sent using prompt');
+        } else if (typeof conversation.write === 'function') {
+            conversation.write(message);
+            console.log('Message sent using write');
+        } else if (typeof conversation.ask === 'function') {
+            conversation.ask(message);
+            console.log('Message sent using ask');
+        } else {
+            console.error('No suitable message sending method found');
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error('Error sending message:', error);
+        return false;
     }
 }
 
 // Track if the summary button was clicked to request a summary
 let summarizeRequested = false;
+
+async function endConversation() {
+    console.log('Ending conversation...');
+    
+    // End scripted conversation if active
+    if (audioContext || mediaStream) {
+        console.log('Ending scripted conversation...');
+        endScriptedConversation();
+        return;
+    }
+    
+    // End regular conversation with proper WebSocket cleanup
+    if (conversation) {
+        try {
+            console.log('Attempting to end conversation session...');
+            
+            // Create a promise that resolves when the WebSocket is fully closed
+            const closePromise = new Promise((resolve) => {
+                const originalOnDisconnect = conversation.onDisconnect;
+                conversation.onDisconnect = () => {
+                    console.log('WebSocket fully closed');
+                    if (originalOnDisconnect) originalOnDisconnect();
+                    resolve();
+                };
+            });
+            
+            await conversation.endSession();
+            console.log('Conversation endSession called');
+            
+            // Wait for the WebSocket to fully close
+            await closePromise;
+            console.log('Conversation ended successfully');
+            
+        } catch (error) {
+            console.error('Error ending conversation:', error);
+            // Continue with cleanup even if endSession fails
+        } finally {
+            conversation = null;
+            isConnecting = false;
+            connectionReadyPromise = null;
+            stopKeepAlive(); // Stop keep-alive mechanism
+            console.log('Conversation variable reset to null');
+        }
+    } else {
+        console.log('No active conversation to end');
+    }
+    
+    // Add a delay to ensure complete cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+}
+
+// Function to safely create a new conversation session with proper WebSocket management
+async function createNewConversation(config) {
+    if (isConnecting) {
+        console.log('Already connecting, waiting for current connection...');
+        if (connectionReadyPromise) {
+            await connectionReadyPromise;
+        }
+        return conversation;
+    }
+    
+    isConnecting = true;
+    
+    try {
+        console.log('Creating new conversation session...');
+        
+        // Create a promise that resolves when the connection is fully established
+        connectionReadyPromise = new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error('Connection timeout'));
+            }, 10000); // 10 second timeout
+            
+            const originalOnConnect = config.onConnect;
+            const originalOnError = config.onError;
+            
+            config.onConnect = () => {
+                clearTimeout(timeoutId);
+                isConnecting = false;
+                console.log('WebSocket connection fully established');
+                startKeepAlive(); // Start keep-alive mechanism
+                if (originalOnConnect) originalOnConnect();
+                resolve();
+            };
+            
+            config.onError = (error) => {
+                clearTimeout(timeoutId);
+                isConnecting = false;
+                console.error('WebSocket connection error:', error);
+                if (originalOnError) originalOnError(error);
+                reject(error);
+            };
+        });
+        
+        // Start the session
+        conversation = await Conversation.startSession(config);
+        
+        // Wait for the connection to be fully established
+        await connectionReadyPromise;
+        
+        return conversation;
+        
+    } catch (error) {
+        isConnecting = false;
+        connectionReadyPromise = null;
+        throw error;
+    }
+}
 
 // Function to request a summary of the conversation
 async function summarizeConversation() {
@@ -476,49 +642,14 @@ async function summarizeConversation() {
             // Log the request time for debugging
             console.log(`Summary requested at ${new Date().toISOString()}`);
             
-            // Send a message to the AI asking for a summary
-            // Try different methods in case the API has changed
-            try {
-                // Prepare the summary message with clear instructions
-                const summaryPrompt = "Please summarize our entire debate so far with key points from both sides.";
-                
-                // Method 1: Using sendTextMessage (original method)
-                if (typeof conversation.sendTextMessage === 'function') {
-                    await conversation.sendTextMessage(summaryPrompt);
-                    console.log('Summary requested using sendTextMessage');
-                } 
-                // Method 2: Using sendUserMessage 
-                else if (typeof conversation.sendUserMessage === 'function') {
-                    await conversation.sendUserMessage(summaryPrompt);
-                    console.log('Summary requested using sendUserMessage');
-                }
-                // Method 3: Using prompt
-                else if (typeof conversation.prompt === 'function') {
-                    await conversation.prompt(summaryPrompt);
-                    console.log('Summary requested using prompt');
-                }                
-                // Method 4: Using write
-                else if (typeof conversation.write === 'function') {
-                    await conversation.write(summaryPrompt);
-                    console.log('Summary requested using write');
-                }
-                // Method 5: Using ask
-                else if (typeof conversation.ask === 'function') {
-                    await conversation.ask(summaryPrompt);
-                    console.log('Summary requested using ask');
-                }
-                // Method 6: If none of the above works, log the available methods and information
-                else {
-                    console.error('No suitable message sending method found on conversation object');
-                    console.log('Available methods:', 
-                        Object.getOwnPropertyNames(Object.getPrototypeOf(conversation)));
-                    console.log('Conversation object keys:', Object.keys(conversation));
-                    console.log('Conversation object:', conversation);
-                    throw new Error('No suitable method to send message to AI');
-                }
-            } catch (innerError) {
-                console.error('Error sending message:', innerError);
-                throw innerError;
+            // Prepare the summary message with clear instructions
+            const summaryPrompt = "Please summarize our entire debate so far with key points from both sides.";
+            
+            // Use the safe message sending function
+            const messageSent = safeSendMessage(conversation, summaryPrompt);
+            
+            if (!messageSent) {
+                throw new Error('Failed to send summary request - WebSocket may be closed');
             }
             
             console.log('Summary requested, button will remain disabled until summary is complete');
@@ -573,13 +704,18 @@ async function startQnA() {
     try {
         console.log('Starting Q&A with Nelson Mandela...');
         
-        // End any existing conversation first
+        // End any existing conversation first with proper cleanup
         if (conversation) {
             console.log('Ending existing conversation before starting Q&A...');
             await endConversation();
-            // Wait a moment to ensure cleanup is complete
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait to ensure complete cleanup and WebSocket closure
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
+        
+        // Clear any lingering conversation reference
+        conversation = null;
+        isConnecting = false;
+        connectionReadyPromise = null;
         
         // Request microphone permission first
         const hasPermission = await requestMicrophonePermission();
@@ -594,24 +730,29 @@ async function startQnA() {
         // Force select Nelson Mandela
         selectOpponent('nelson');
         
-        // Get signed URL for Nelson Mandela
+        // Get signed URL for Nelson Mandela - ensure fresh URL for new session
         const signedUrl = await getSignedUrl('nelson');
         
         console.log('Creating Q&A conversation with signed URL...');
         
-        // Create new conversation
-        conversation = await Conversation.startSession({
+        // Create new conversation with improved WebSocket management
+        await createNewConversation({
             signedUrl,
             onConnect: () => {
                 console.log('Q&A session connected successfully');
                 updateStatus(true);
                 updateSpeakingStatus({ mode: 'listening' });
                 
-                // Hide Q&A button and show end button
-                document.getElementById('qnaButton').style.display = 'none';
-                document.getElementById('endButton').style.display = 'flex';
-                document.getElementById('startButton').style.display = 'none';
-                document.getElementById('summaryButton').style.display = 'none';
+                // Update UI after successful connection with longer delay
+                setTimeout(() => {
+                    // Hide Q&A button and show end button
+                    document.getElementById('qnaButton').style.display = 'none';
+                    document.getElementById('startScriptedAI').style.display = 'none';
+                    document.getElementById('endButton').style.display = 'flex';
+                    document.getElementById('startButton').style.display = 'none';
+                    document.getElementById('summaryButton').style.display = 'none';
+                    console.log('Q&A UI updated - ready for interaction');
+                }, 1000);
             },
             onDisconnect: () => {
                 console.log('Q&A session disconnected');
@@ -619,9 +760,11 @@ async function startQnA() {
                 updateSpeakingStatus({ mode: 'agent_silent' });
                 stopMouthAnimation();
                 setFormControlsState(false);
+                stopKeepAlive(); // Stop keep-alive when disconnected
                 
                 // Reset button visibility
                 document.getElementById('qnaButton').style.display = 'block';
+                document.getElementById('startScriptedAI').style.display = 'flex';
                 document.getElementById('endButton').style.display = 'none';
                 document.getElementById('startButton').style.display = 'flex';
                 document.getElementById('summaryButton').style.display = 'none';
@@ -635,6 +778,7 @@ async function startQnA() {
                 
                 // Reset button visibility
                 document.getElementById('qnaButton').style.display = 'block';
+                document.getElementById('startScriptedAI').style.display = 'flex';
                 document.getElementById('endButton').style.display = 'none';
                 document.getElementById('startButton').style.display = 'flex';
                 document.getElementById('summaryButton').style.display = 'none';
@@ -661,6 +805,7 @@ async function startQnA() {
         
         // Reset button visibility on error
         document.getElementById('qnaButton').style.display = 'block';
+        document.getElementById('startScriptedAI').style.display = 'flex';
         document.getElementById('endButton').style.display = 'none';
         document.getElementById('startButton').style.display = 'flex';
         document.getElementById('summaryButton').style.display = 'none';
@@ -669,10 +814,193 @@ async function startQnA() {
     }
 }
 
+// Scripted Conversation
+let audioContext;
+let mediaStream;
+let analyser;
+let dataArray;
+
+async function startMicMonitoring() {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    analyser = audioContext.createAnalyser();
+    source.connect(analyser);
+    analyser.fftSize = 512;
+    const bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+}
+
+function isUserSpeaking(threshold = 15) {
+    analyser.getByteFrequencyData(dataArray);
+    const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    return avg > threshold;
+}
+
+async function waitForUserToStopSpeaking(silenceDuration = 2000, pollInterval = 200) {
+    let silentFor = 0;
+    return new Promise(resolve => {
+        const check = () => {
+            if (!isUserSpeaking()) {
+                silentFor += pollInterval;
+                if (silentFor >= silenceDuration) {
+                    resolve();
+                    return;
+                }
+            } else {
+                silentFor = 0; // Reset timer if user speaks again
+            }
+            setTimeout(check, pollInterval);
+        };
+        check();
+    });
+}
+
+// Change avatar for scripted conversation
+function changeAvatar(name) {
+    selectOpponent('taylor');
+    initializeAvatar();
+}
+
+const playScriptLine = (index) => {
+    return new Promise((resolve, reject) => {
+        const fileNumber = index + 1;
+        const filePath = `/audios/${fileNumber}.mp3`;
+
+        console.log(`Attempting to load audio file: ${filePath}`);
+        const audio = new Audio(filePath);
+
+        audio.onended = () => {
+            console.log(`Audio ${fileNumber} finished playing`);
+            resolve();
+        };
+
+        audio.onerror = (e) => {
+            console.error(`Error loading audio file: ${filePath}`, e);
+            console.error('Audio error details:', audio.error);
+            reject(new Error(`Failed to load audio file: ${filePath}`));
+        };
+
+        audio.onloadstart = () => {
+            console.log(`Started loading audio: ${filePath}`);
+        };
+
+        audio.oncanplay = () => {
+            console.log(`Audio can play: ${filePath}`);
+        };
+
+        audio.play().then(() => {
+            console.log(`Playing: ${filePath}`);
+            // Start mouth animation during playback
+            startMouthAnimation();
+        }).catch(err => {
+            console.error(`Playback failed: ${filePath}`, err);
+            reject(err);
+        });
+    });
+};
+
+async function startScriptedAI() {
+    try {
+        console.log('Starting scripted TAIlor Swift conversation...');
+        
+        // End any existing conversation first
+        if (conversation || audioContext || mediaStream) {
+            console.log('Ending existing session before starting scripted conversation...');
+            await endConversation();
+            // Wait a moment to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Request microphone permission
+        const hasPermission = await requestMicrophonePermission();
+        if (!hasPermission) {
+            alert('Microphone permission is required for the scripted conversation.');
+            return;
+        }
+
+        // Change avatar to Taylor Swift
+        changeAvatar("TAIlor Swift");
+        console.log('Avatar changed to Taylor Swift');
+        
+        // Update UI - disable form controls and hide other buttons
+        setFormControlsState(true);
+        document.getElementById('startScriptedAI').style.display = 'none';
+        document.getElementById('startButton').style.display = 'none';
+        document.getElementById('qnaButton').style.display = 'none';
+        document.getElementById('endButton').style.display = 'flex';
+        document.getElementById('summaryButton').style.display = 'none';
+        
+        // Update status
+        updateStatus(true);
+
+        console.log('Starting microphone monitoring...');
+        await startMicMonitoring();
+
+        console.log('Beginning scripted conversation with 7 audio files...');
+        for (let i = 0; i < 7; i++) {
+            console.log(`Now playing line ${i + 1} of 7`);
+            updateSpeakingStatus({ mode: 'speaking' });
+            
+            await playScriptLine(i);
+            
+            // Stop mouth animation when audio ends
+            stopMouthAnimation();
+            updateSpeakingStatus({ mode: 'listening' });
+
+            if (i < 6) { // Don't wait after the last audio
+                console.log(`Waiting for user silence after line ${i + 1}...`);
+                await waitForUserToStopSpeaking();
+                console.log(`Silence detected after line ${i + 1}. Proceeding to next line.`);
+            }
+        }
+
+        console.log('All audio lines completed successfully');
+        alert("Script complete. Thank you!");
+        
+        // Reset UI
+        endScriptedConversation();
+        
+    } catch (err) {
+        console.error("Error during script:", err);
+        alert(`Something went wrong during the scripted playback: ${err.message}`);
+        endScriptedConversation();
+    }
+}
+
+function endScriptedConversation() {
+    // Clean up audio context
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+    if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+    }
+    
+    // Stop keep-alive if it was running
+    stopKeepAlive();
+    
+    // Reset UI
+    setFormControlsState(false);
+    document.getElementById('startScriptedAI').style.display = 'flex';
+    document.getElementById('startButton').style.display = 'flex';
+    document.getElementById('qnaButton').style.display = 'block';
+    document.getElementById('endButton').style.display = 'none';
+    document.getElementById('summaryButton').style.display = 'none';
+    
+    // Reset status
+    updateStatus(false);
+    updateSpeakingStatus({ mode: 'agent_silent' });
+    stopMouthAnimation();
+}
+
 document.getElementById('startButton').addEventListener('click', startConversation);
 document.getElementById('endButton').addEventListener('click', endConversation);
 document.getElementById('summaryButton').addEventListener('click', summarizeConversation);
 document.getElementById('qnaButton').addEventListener('click', startQnA);
+document.getElementById('startScriptedAI').addEventListener('click', startScriptedAI);
 
 // Initialize avatar when page loads
 document.addEventListener('DOMContentLoaded', () => {
@@ -687,6 +1015,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ensure initial button states
     endButton.style.display = 'none';
     summaryButton.style.display = 'none';
+    document.getElementById('startScriptedAI').style.display = 'flex';
+    document.getElementById('qnaButton').style.display = 'block';
     
     function checkFormValidity() {
         const topicSelected = topicSelect.value !== '';
