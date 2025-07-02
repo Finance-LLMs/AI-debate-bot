@@ -1,5 +1,6 @@
 .env
+.vscode
 package-lock.json
 dist/
 node_modules/
-documentation.md
+src/audios/
