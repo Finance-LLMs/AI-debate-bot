@@ -237,13 +237,10 @@ async function requestMicrophonePermission() {
     }
 }
 
-async function getSignedUrl(opponent, mode = null) {
+async function getSignedUrl(opponent) {
     try {
-        let url = opponent ? `/api/signed-url?opponent=${opponent}` : '/api/signed-url';
-        if (mode) {
-            url += `&mode=${mode}`;
-        }
-        console.log('Requesting signed URL for:', opponent, 'mode:', mode, 'URL:', url);
+        const url = opponent ? `/api/signed-url?opponent=${opponent}` : '/api/signed-url';
+        console.log('Requesting signed URL for:', opponent, 'URL:', url);
         const response = await fetch(url);
         if (!response.ok) {
             console.error('Failed to get signed URL, status:', response.status);
@@ -597,30 +594,18 @@ async function startQnA() {
         // Force select Nelson Mandela
         selectOpponent('nelson');
         
-        // Get signed URL for Nelson Mandela Q&A mode
-        const signedUrl = await getSignedUrl('nelson', 'qna');
+        // Get signed URL for Nelson Mandela
+        const signedUrl = await getSignedUrl('nelson');
         
         console.log('Creating Q&A conversation with signed URL...');
-        console.log('Signed URL details:', signedUrl);
         
-        // Create new conversation with the same structure as the debate but simpler parameters
+        // Create new conversation
         conversation = await Conversation.startSession({
-            signedUrl: signedUrl,
-            // Add simple dynamic variables to make it a Q&A session
-            dynamicVariables: {
-                topic: "Allowing AI to override human decisions in healthcare",
-                user_stance: "curious",
-                ai_stance: "against"
-            },
+            signedUrl,
             onConnect: () => {
                 console.log('Q&A session connected successfully');
                 updateStatus(true);
                 updateSpeakingStatus({ mode: 'listening' });
-                
-                // Send an initial greeting to keep the connection active
-                setTimeout(() => {
-                    console.log('Q&A session ready for user input');
-                }, 1000);
                 
                 // Hide Q&A button and show end button
                 document.getElementById('qnaButton').style.display = 'none';
